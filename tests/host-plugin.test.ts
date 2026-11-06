@@ -10,8 +10,13 @@ interface FakeRoute {
   resource: (request: Request) => Promise<Response>;
 }
 
-/** Minimal Host context: records listeners, effects and route registrations. */
-function fakeHost(options: { webServer?: boolean } = {}) {
+/**
+ * Minimal Host context: records listeners, effects and route registrations.
+ *
+ * `title` stands in for the Harness `sessionTitle` fold service; `titleThrows`
+ * covers a service that misbehaves while being read.
+ */
+function fakeHost(options: { webServer?: boolean; title?: string; titleThrows?: boolean } = {}) {
   const listeners = new Map<string, (...args: unknown[]) => unknown>();
   const disposers: Array<() => void> = [];
   const routes: FakeRoute[] = [];
@@ -52,6 +57,15 @@ function fakeHost(options: { webServer?: boolean } = {}) {
     },
     get(name: string) {
       if (name === 'webServer') return options.webServer === false ? undefined : webServer;
+      if (name === 'sessionTitle') {
+        if (options.title === undefined && options.titleThrows !== true) return undefined;
+        return {
+          get() {
+            if (options.titleThrows === true) throw new Error('session-title fold exploded');
+            return { title: options.title, messageSeqs: [], source: { kind: 'fallback' } };
+          },
+        };
+      }
       return undefined;
     },
   };
@@ -166,6 +180,67 @@ describe('host plugin wiring', () => {
       body = await read();
       expect(body.agentState).toBe('error');
       expect((body.events as Array<Record<string, unknown>>)[0]?.label).toBe('QUOTA');
+    } finally {
+      host.restoreConsole();
+    }
+  });
+
+  it('backfills a Session title the reloaded Host never saw as an event', async () => {
+    const host = fakeHost({ title: '修复重复悬浮球' });
+    try {
+      apply(host.ctx as never);
+      const onEvent = host.listeners.get('session/event') as (session: unknown, event: unknown) => void;
+      // Only a mid-Session event survives a reload: `session/title` already fired.
+      onEvent({ id: 's1' }, {
+        type: 'tool/call',
+        time: T0,
+        data: { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"ls"}' },
+      });
+      const stateRoute = host.routes.find((route) => route.path === '/api/neural-orbit/state');
+      const body = (await (await stateRoute?.resource(
+        new Request('http://local/api/neural-orbit/state?sessionId=s1'),
+      ))?.json()) as Record<string, unknown>;
+      expect((body.task as Record<string, unknown>).taskTitle).toBe('修复重复悬浮球');
+    } finally {
+      host.restoreConsole();
+    }
+  });
+
+  it('lets a live session/title event override the backfilled title', async () => {
+    const host = fakeHost({ title: '旧标题' });
+    try {
+      apply(host.ctx as never);
+      const onEvent = host.listeners.get('session/event') as (session: unknown, event: unknown) => void;
+      onEvent({ id: 's1' }, {
+        type: 'tool/call',
+        time: T0,
+        data: { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"ls"}' },
+      });
+      onEvent({ id: 's1' }, {
+        type: 'session/title',
+        time: T0 + 1,
+        data: { title: '新标题', messageSeqs: [1], source: { kind: 'user' } },
+      });
+      const stateRoute = host.routes.find((route) => route.path === '/api/neural-orbit/state');
+      const body = (await (await stateRoute?.resource(
+        new Request('http://local/api/neural-orbit/state?sessionId=s1'),
+      ))?.json()) as Record<string, unknown>;
+      expect((body.task as Record<string, unknown>).taskTitle).toBe('新标题');
+    } finally {
+      host.restoreConsole();
+    }
+  });
+
+  it('survives a sessionTitle service that throws', () => {
+    const host = fakeHost({ titleThrows: true });
+    try {
+      apply(host.ctx as never);
+      const onEvent = host.listeners.get('session/event') as (session: unknown, event: unknown) => void;
+      expect(() => onEvent({ id: 's1' }, {
+        type: 'tool/call',
+        time: T0,
+        data: { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"ls"}' },
+      })).not.toThrow();
     } finally {
       host.restoreConsole();
     }

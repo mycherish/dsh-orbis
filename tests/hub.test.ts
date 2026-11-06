@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { OrbitHub, type SessionEventLike } from '../src/host/hub';
 import { MAX_ACTIVITY_ROWS } from '../src/shared/protocol';
+import { TASK_TITLE_FALLBACK } from '../src/shared/task-context-types';
 
 const T0 = 1_700_000_000_000;
 
@@ -513,5 +514,53 @@ describe('hub v2.0: task context', () => {
     expect(json).not.toContain('/Users');
     expect(json).not.toContain('.env');
     expect(json).toContain('读取敏感配置文件');
+  });
+});
+
+describe('host reload backfill', () => {
+  it('counts turns from the observed turn number, not only from turn/start', () => {
+    const hub = new OrbitHub({ now: () => T0 });
+    /*
+     * A Host that reloaded mid-Session sees a tool call belonging to turn 9 step 3
+     * and never the `turn/start` events of turns 1..8. Reporting "TURNS 0" next to
+     * eleven tool calls was the visible symptom.
+     */
+    hub.handleSessionEvent('s1', {
+      type: 'tool/call',
+      time: T0 + 5,
+      data: { turn: 9, step: 3, callId: 'c1', name: 'bash', arguments: '{"command":"ls"}' },
+    });
+    const snapshot = hub.snapshot('s1');
+    expect(snapshot.metrics.turns).toBe(9);
+    expect(snapshot.metrics.steps).toBe(3);
+    expect(snapshot.metrics.tools).toBe(1);
+
+    // Observed events still count, and the floor below them never double-counts.
+    hub.handleSessionEvent('s1', { type: 'turn/start', time: T0 + 10, data: { turn: 10 } });
+    expect(hub.snapshot('s1').metrics.turns).toBe(10);
+  });
+
+  it('seeds a title the session/title event never replayed', () => {
+    const hub = new OrbitHub({ now: () => T0 });
+    expect(hub.taskContext('s1').taskTitle).toBe(TASK_TITLE_FALLBACK);
+    hub.seedTitle('s1', '修复重复悬浮球');
+    expect(hub.taskContext('s1').taskTitle).toBe('修复重复悬浮球');
+  });
+
+  it('never lets a seed overwrite the live title event', () => {
+    const hub = new OrbitHub({ now: () => T0 });
+    hub.handleSessionEvent('s1', {
+      type: 'session/title',
+      time: T0,
+      data: { title: '实时标题', messageSeqs: [1], source: { kind: 'user' } },
+    });
+    hub.seedTitle('s1', '上一轮读到的旧标题');
+    expect(hub.taskContext('s1').taskTitle).toBe('实时标题');
+  });
+
+  it('ignores a blank seed so the fallback title stays', () => {
+    const hub = new OrbitHub({ now: () => T0 });
+    hub.seedTitle('s1', '   ');
+    expect(hub.taskContext('s1').taskTitle).toBe(TASK_TITLE_FALLBACK);
   });
 });

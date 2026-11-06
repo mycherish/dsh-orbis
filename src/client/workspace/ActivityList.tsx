@@ -4,7 +4,7 @@
  */
 import * as React from 'react';
 import type { OrbitActivity } from '../../shared/protocol';
-import { activityVisual, formatDuration, relativeTime, statusColor } from './format';
+import { activityVisual, formatDuration, kindAddsInfo, relativeTime, statusColor } from './format';
 import { cssVars } from './styles';
 import { LABELS } from './labels';
 
@@ -72,6 +72,16 @@ interface ActivityRowProps {
 function ActivityRow({ row, now }: ActivityRowProps): React.ReactElement {
   const visual = activityVisual(row);
   const running = row.status === 'running';
+  const name = row.label.trim() === '' ? LABELS.units.empty : row.label;
+  /**
+   * The family word *is* the row's name for every classified tool row, so the
+   * second line repeated it verbatim (`执行测试` over `执行测试 · 2.1s`). Keep it
+   * only when it says something the name does not: a redacted row, whose name is
+   * masked, or an unclassified tool, where the name is the raw tool id.
+   */
+  const kind = kindAddsInfo(visual.kind, name) ? visual.kind : undefined;
+  const duration = typeof row.duration === 'number' ? formatDuration(row.duration) : undefined;
+  const hasSub = kind !== undefined || visual.target !== undefined || duration !== undefined;
 
   return (
     <li className="no-row" data-redacted={row.redacted === true ? 'true' : 'false'}>
@@ -79,20 +89,18 @@ function ActivityRow({ row, now }: ActivityRowProps): React.ReactElement {
         {visual.glyph}
       </span>
       <span className="no-row-main">
-        <span className="no-row-name">
-          {row.label.trim() === '' ? LABELS.units.empty : row.label}
-        </span>
-        <span className="no-row-sub">
-          <span className="no-row-kind">{visual.kind}</span>
-          {visual.target ? (
-            <span className="no-row-target" title={visual.target}>
-              {visual.target}
-            </span>
-          ) : null}
-          {typeof row.duration === 'number' ? (
-            <span className="no-row-dur">{formatDuration(row.duration)}</span>
-          ) : null}
-        </span>
+        <span className="no-row-name">{name}</span>
+        {hasSub ? (
+          <span className="no-row-sub">
+            {kind === undefined ? null : <span className="no-row-kind">{kind}</span>}
+            {visual.target ? (
+              <span className="no-row-target" title={visual.target}>
+                {visual.target}
+              </span>
+            ) : null}
+            {duration === undefined ? null : <span className="no-row-dur">{duration}</span>}
+          </span>
+        ) : null}
       </span>
       <span className="no-row-meta">
         <span

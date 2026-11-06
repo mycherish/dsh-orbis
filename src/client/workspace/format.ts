@@ -144,6 +144,20 @@ export function categoryVisualLabel(category: OrbitToolCategory): string {
   return CATEGORY_LABEL[category] ?? CATEGORY_LABEL.unknown;
 }
 
+/**
+ * Whether a row's family word adds anything to the row's own name.
+ *
+ * Every classified tool row carries the family word in both places — the name is
+ * `CATEGORY_LABEL[category]` and `visual.kind` is the same string — so rendering
+ * both printed `执行测试 / 执行测试 · 2.1s`. The word survives only where the name
+ * cannot carry it: a redacted row (name masked) or an unclassified tool (name is
+ * a raw tool id).
+ */
+export function kindAddsInfo(kind: string, name: string): boolean {
+  const word = kind.trim();
+  return word !== '' && word !== name.trim();
+}
+
 /* A failed row keeps its family word but takes the error colour and spike. */
 const FAILED_VISUAL: { key: CategoryKey; glyph: string } = { key: 'error', glyph: '!' };
 

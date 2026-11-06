@@ -280,6 +280,25 @@ export class OrbitHub {
 
   // ------------------------------------------------------------------ folds
 
+  /**
+   * Seed the Session title from a source other than the `session/title` event.
+   *
+   * The event only fires once per title change, so a Host that reloads after it
+   * already happened would otherwise show the fallback title for the rest of the
+   * Session. The caller reads the title from the Harness' own fold and passes the
+   * already-derived string in: nothing here is inferred.
+   */
+  seedTitle(sessionId: string, title: string): void {
+    if (typeof sessionId !== 'string' || sessionId === '') return;
+    const trimmed = title.trim();
+    if (trimmed === '') return;
+    const record = this.ensure(sessionId);
+    // A live `session/title` event is the newer truth; never overwrite it.
+    if (record.title !== undefined) return;
+    record.title = trimmed;
+    this.touch(record, this.mono());
+  }
+
   /** Fold one durable DSH Session event. Unknown event types are ignored. */
   handleSessionEvent(sessionId: string, event: SessionEventLike): void {
     if (typeof sessionId !== 'string' || sessionId === '') return;
@@ -684,7 +703,16 @@ export class OrbitHub {
       events: record.activities.slice(0, this.maxActivities),
       task: this.taskContext(record.sessionId),
       updatedAt: record.updatedAt,
-      metrics: { ...record.metrics },
+      metrics: {
+        ...record.metrics,
+        // A Host reload loses the `turn/start` events that came before it, but the
+        // machine still learns the real turn (and step) number from the events it
+        // does see. Report the higher value so the counter can never claim fewer
+        // turns than the Session is actually on — no number is invented, `turns`
+        // is exact because DSH numbers turns sequentially from 1.
+        turns: Math.max(record.metrics.turns, machine.turn ?? 0),
+        steps: Math.max(record.metrics.steps, machine.step ?? 0),
+      },
     };
   }
 

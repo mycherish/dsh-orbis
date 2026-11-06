@@ -3,6 +3,7 @@ import {
   buildTimeline,
   activityVisual,
   categoryVisualLabel,
+  kindAddsInfo,
   stateColor,
   statusColor,
   CATEGORIES,
@@ -318,5 +319,36 @@ describe('buildTimeline', () => {
     expect(model.marks).toEqual([]);
     expect(model.headPct).toBe(0);
     expect(model.span).toBe('—');
+  });
+});
+
+describe('row second line never repeats the row name', () => {
+  it('suppresses the family word for every classified tool row', () => {
+    /*
+     * The Host labels a classified tool row with its family word and the visual
+     * layer derives `kind` from the same table, so both were printed:
+     * `执行测试 / 执行测试 · 2.1s`.
+     */
+    for (const category of CATEGORY_KEYS) {
+      const row = activity({ category, label: CATEGORY_LABEL[category] });
+      expect(kindAddsInfo(activityVisual(row).kind, row.label)).toBe(false);
+    }
+  });
+
+  it('keeps the masked-file sentence a redacted row carries', () => {
+    const row = activity({ category: 'file_read', label: CATEGORY_LABEL.file_read, redacted: true });
+    expect(kindAddsInfo(activityVisual(row).kind, row.label)).toBe(true);
+  });
+
+  it('keeps an unclassified tool id distinguishable from the fallback word', () => {
+    const row = activity({ category: 'unknown', label: 'mystery_tool' });
+    const visual = activityVisual(row);
+    expect(kindAddsInfo(visual.kind, row.label)).toBe(true);
+    expect(visual.kind).toBe(CATEGORY_LABEL.unknown);
+  });
+
+  it('treats whitespace-only words as nothing to add', () => {
+    expect(kindAddsInfo('   ', '执行测试')).toBe(false);
+    expect(kindAddsInfo(' 执行测试 ', '执行测试')).toBe(false);
   });
 });

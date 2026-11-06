@@ -18,6 +18,14 @@ import { ORBIT_PROTOCOL_VERSION } from '../shared/protocol';
 /** How often held states, silence buckets and stale calls are re-evaluated. */
 const TICK_MS = 250;
 
+/**
+ * Minimum gap between title reads for a Session that has no title yet.
+ *
+ * `sessionTitle.get()` folds the whole Session log, so it is not free; reading it
+ * on every event would tax the Host for a value that only changes rarely.
+ */
+const TITLE_RETRY_MS = 5_000;
+
 /** A session id may arrive as a bare value or as an object carrying `id`. */
 interface AgentLike {
   id: unknown;
@@ -27,6 +35,11 @@ interface AgentLike {
 interface ListenerOptions {
   /** Listen across every Agent scope, not only this plugin's own. */
   global?: boolean;
+}
+
+/** Structural view of the Harness `sessionTitle` fold service. */
+interface SessionTitleServiceLike {
+  get(session: unknown): { title?: unknown } | undefined;
 }
 
 /** Structural view of the Cordis Host context this plugin depends on. */
@@ -118,11 +131,43 @@ export function apply(ctx: HostContextLike): void {
   // events of Agents it did not create (sub-agents, teammates).
   const GLOBAL: ListenerOptions = { global: true };
 
+  // `session/title` fires once per title change, so a Session that already had a
+  // title when the Host last reloaded never replays it. Backfill from the
+  // Harness' own fold instead of showing the fallback title forever.
+  const titled = new Set<string>();
+  const titleCheckedAt = new Map<string, number>();
+
+  const seedTitle = (session: SessionLike, sessionId: string): void => {
+    if (titled.has(sessionId)) return;
+    const now = Date.now();
+    const previous = titleCheckedAt.get(sessionId);
+    if (previous !== undefined && now - previous < TITLE_RETRY_MS) return;
+    if (titleCheckedAt.size > 256) titleCheckedAt.clear();
+    titleCheckedAt.set(sessionId, now);
+    let service: SessionTitleServiceLike | undefined;
+    try {
+      service = ctx.get('sessionTitle') as SessionTitleServiceLike | undefined;
+    } catch {
+      return; // Service unavailable: the fallback title stays, nothing breaks.
+    }
+    if (service === undefined || service === null || typeof service.get !== 'function') return;
+    try {
+      const title = service.get(session)?.title;
+      if (typeof title !== 'string' || title.trim() === '') return;
+      titled.add(sessionId);
+      titleCheckedAt.delete(sessionId);
+      hub.seedTitle(sessionId, title);
+    } catch (error) {
+      report('session title read', error);
+    }
+  };
+
   ctx.effect(() => ctx.on('session/event', (session, event) => {
     try {
       const sessionId = idOf(session);
       if (sessionId === undefined) return;
       hub.handleSessionEvent(sessionId, event);
+      seedTitle(session, sessionId);
     } catch (error) {
       report('session event normalization', error);
     }

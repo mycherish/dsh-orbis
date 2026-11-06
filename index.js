@@ -1074,6 +1074,23 @@ var OrbitHub = class {
     }
   }
   // ------------------------------------------------------------------ folds
+  /**
+   * Seed the Session title from a source other than the `session/title` event.
+   *
+   * The event only fires once per title change, so a Host that reloads after it
+   * already happened would otherwise show the fallback title for the rest of the
+   * Session. The caller reads the title from the Harness' own fold and passes the
+   * already-derived string in: nothing here is inferred.
+   */
+  seedTitle(sessionId, title) {
+    if (typeof sessionId !== "string" || sessionId === "") return;
+    const trimmed = title.trim();
+    if (trimmed === "") return;
+    const record = this.ensure(sessionId);
+    if (record.title !== void 0) return;
+    record.title = trimmed;
+    this.touch(record, this.mono());
+  }
   /** Fold one durable DSH Session event. Unknown event types are ignored. */
   handleSessionEvent(sessionId, event) {
     if (typeof sessionId !== "string" || sessionId === "") return;
@@ -1435,7 +1452,16 @@ var OrbitHub = class {
       events: record.activities.slice(0, this.maxActivities),
       task: this.taskContext(record.sessionId),
       updatedAt: record.updatedAt,
-      metrics: { ...record.metrics }
+      metrics: {
+        ...record.metrics,
+        // A Host reload loses the `turn/start` events that came before it, but the
+        // machine still learns the real turn (and step) number from the events it
+        // does see. Report the higher value so the counter can never claim fewer
+        // turns than the Session is actually on — no number is invented, `turns`
+        // is exact because DSH numbers turns sequentially from 1.
+        turns: Math.max(record.metrics.turns, machine.turn ?? 0),
+        steps: Math.max(record.metrics.steps, machine.step ?? 0)
+      }
     };
   }
   subscribe(listener) {
@@ -1561,6 +1587,7 @@ function registerOrbitRoutes(hub, webServer) {
 
 // src/host/index.ts
 var TICK_MS = 250;
+var TITLE_RETRY_MS = 5e3;
 function idOf(value) {
   if (typeof value === "string" && value !== "") return value;
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
@@ -1594,11 +1621,38 @@ function apply(ctx) {
     console.warn(`[neural-orbit] ${label} failed: ${message}`);
   };
   const GLOBAL = { global: true };
+  const titled = /* @__PURE__ */ new Set();
+  const titleCheckedAt = /* @__PURE__ */ new Map();
+  const seedTitle = (session, sessionId) => {
+    if (titled.has(sessionId)) return;
+    const now = Date.now();
+    const previous = titleCheckedAt.get(sessionId);
+    if (previous !== void 0 && now - previous < TITLE_RETRY_MS) return;
+    if (titleCheckedAt.size > 256) titleCheckedAt.clear();
+    titleCheckedAt.set(sessionId, now);
+    let service;
+    try {
+      service = ctx.get("sessionTitle");
+    } catch {
+      return;
+    }
+    if (service === void 0 || service === null || typeof service.get !== "function") return;
+    try {
+      const title = service.get(session)?.title;
+      if (typeof title !== "string" || title.trim() === "") return;
+      titled.add(sessionId);
+      titleCheckedAt.delete(sessionId);
+      hub.seedTitle(sessionId, title);
+    } catch (error) {
+      report("session title read", error);
+    }
+  };
   ctx.effect(() => ctx.on("session/event", (session, event) => {
     try {
       const sessionId = idOf(session);
       if (sessionId === void 0) return;
       hub.handleSessionEvent(sessionId, event);
+      seedTitle(session, sessionId);
     } catch (error) {
       report("session event normalization", error);
     }

@@ -26,7 +26,10 @@ export interface LauncherProps {
   onToggle: () => void;
   onHide: () => void;
   onPositionChange: (position: LauncherPosition) => void;
-  bindCanvas: (canvas: HTMLCanvasElement | null) => void;
+  /** Bind the shared orb slot; the shell moves the single canvas in here. */
+  bindOrbSlot: (el: HTMLElement | null) => void;
+  /** True when WebGL is unavailable and the static fallback should draw. */
+  orbUnavailable?: boolean;
 }
 
 const DRAG_THRESHOLD_PX = 4;
@@ -37,9 +40,10 @@ const CSS = `
 .no-launcher[data-dragging="true"]{cursor:grabbing;transition:none}
 .no-launcher:hover{transform:scale(1.06)}
 .no-launcher:focus-visible{outline:2px solid ${ORBIT_PALETTE.cyan};outline-offset:4px;border-radius:50%}
-.no-launcher-canvas{position:absolute;inset:0;width:${LAUNCHER_SIZE}px;height:${LAUNCHER_SIZE}px;border-radius:50%;display:block;background:radial-gradient(circle at 50% 45%, ${ORBIT_PALETTE.surface}, ${ORBIT_PALETTE.bg} 72%)}
+.no-launcher-slot{position:absolute;inset:0;width:${LAUNCHER_SIZE}px;height:${LAUNCHER_SIZE}px;border-radius:50%;display:block;background:radial-gradient(circle at 50% 45%, ${ORBIT_PALETTE.surface}, ${ORBIT_PALETTE.bg} 72%)}
 .no-launcher-ring{position:absolute;inset:-3px;border-radius:50%;border:1px solid color-mix(in srgb, var(--no-accent) 42%, transparent);box-shadow:0 0 18px color-mix(in srgb, var(--no-accent) 28%, transparent);pointer-events:none;transition:border-color .4s ease, box-shadow .4s ease}
 .no-launcher[data-live="true"] .no-launcher-ring{animation:no-breathe 3.4s ease-in-out infinite}
+.no-launcher-fallback[data-active="false"]{display:none}
 .no-launcher-fallback{position:absolute;inset:0;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--no-accent) 55%, ${ORBIT_PALETTE.surface}), ${ORBIT_PALETTE.bg} 74%)}
 .no-launcher-fallback i{display:block;width:10px;height:10px;border-radius:50%;background:${ORBIT_PALETTE.label};opacity:.9}
 .no-launcher-badge{position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:color-mix(in srgb, var(--no-accent) 82%, #000 18%);color:#04101f;font:600 10px/16px ui-monospace,SFMono-Regular,Menlo,monospace;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.35)}
@@ -67,15 +71,13 @@ export function Launcher(props: LauncherProps): React.ReactElement {
   const { position, agentState, activeTools, open, translate } = props;
   const [dragging, setDragging] = React.useState(false);
   const dragRef = React.useRef<DragState | null>(null);
-  const [webglFailed, setWebglFailed] = React.useState(false);
   const accent = STATE_COLOR[agentState];
 
-  const canvasRef = React.useCallback(
-    (canvas: HTMLCanvasElement | null) => {
-      props.bindCanvas(canvas);
-      if (canvas === null) setWebglFailed(false);
+  const slotRef = React.useCallback(
+    (el: HTMLDivElement | null) => {
+      props.bindOrbSlot(el);
     },
-    [props.bindCanvas],
+    [props.bindOrbSlot],
   );
 
   const clampPosition = React.useCallback((next: LauncherPosition): LauncherPosition => {
@@ -159,11 +161,8 @@ export function Launcher(props: LauncherProps): React.ReactElement {
       }}
     >
       <style>{CSS}</style>
-      {webglFailed ? (
-        <span className="no-launcher-fallback" aria-hidden="true"><i /></span>
-      ) : (
-        <canvas ref={canvasRef} className="no-launcher-canvas" width={LAUNCHER_SIZE} height={LAUNCHER_SIZE} aria-hidden="true" />
-      )}
+      <span className="no-launcher-fallback" aria-hidden="true" data-active={props.orbUnavailable === true ? 'true' : 'false'}><i /></span>
+      <div ref={slotRef} className="no-launcher-slot" aria-hidden="true" />
       <span className="no-launcher-ring" aria-hidden="true" />
       {activeTools > 0 ? (
         <span className="no-launcher-badge" aria-hidden="true">{activeTools > 9 ? '9+' : activeTools}</span>

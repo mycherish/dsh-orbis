@@ -289,7 +289,7 @@ export function buildStyles(): string {
   border-radius: 16px;
   box-shadow: inset 0 0 0 1px ${a(P.label, 4)};
 }
-.no-canvas { display: block; width: 100%; height: 100%; }
+.no-canvas-slot { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 
 /* static stand-in drawn over the canvas when WebGL is unavailable */
 .no-fallback {

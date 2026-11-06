@@ -31,10 +31,10 @@ export function WorkspacePanel(props: WorkspaceViewProps): React.ReactElement {
   const { snapshot, connection, settings, fps, orbUnavailable, onSettingsChange, onClose } = props;
 
   const panelRef = React.useRef<HTMLDivElement | null>(null);
-  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const slotRef = React.useRef<HTMLDivElement | null>(null);
   /** Latest binder, so a re-created callback prop never re-binds the canvas. */
-  const bindRef = React.useRef(props.bindOrbCanvas);
-  bindRef.current = props.bindOrbCanvas;
+  const bindRef = React.useRef(props.bindOrbSlot);
+  bindRef.current = props.bindOrbSlot;
 
   const [now, setNow] = React.useState<number>(() => Date.now());
   const [settingsOpen, setSettingsOpen] = React.useState<boolean>(false);
@@ -52,8 +52,8 @@ export function WorkspacePanel(props: WorkspaceViewProps): React.ReactElement {
 
   /* One bind per mount: the shell builds exactly one renderer per canvas. */
   React.useEffect(() => {
-    const canvas = canvasRef.current;
-    if (canvas) bindRef.current(canvas);
+    const slot = slotRef.current;
+    if (slot) bindRef.current(slot);
     return () => {
       bindRef.current(null);
     };
@@ -145,9 +145,9 @@ export function WorkspacePanel(props: WorkspaceViewProps): React.ReactElement {
         <div className="no-body">
           <section className="no-stage" aria-label={LABELS.panel.stageAria}>
             <div className="no-canvas-wrap">
-              <canvas
-                ref={canvasRef}
-                className="no-canvas"
+              <div
+                ref={slotRef}
+                className="no-canvas-slot"
                 role={orbUnavailable ? 'presentation' : 'img'}
                 aria-label={orbUnavailable ? undefined : LABELS.panel.canvasAria}
               />

@@ -14,8 +14,8 @@ export interface TaskSummaryProps {
   task: OrbitTaskContext | null;
   /** Used only to keep the fallback sentence honest before the first snapshot. */
   state: OrbitAgentState;
-  /** Hand the ball canvas to the shell; called with `null` on unmount. */
-  bindOrbCanvas: (canvas: HTMLCanvasElement | null) => void;
+  /** Hand the orb slot to the shell; called with `null` on unmount. */
+  bindOrbSlot: (el: HTMLElement | null) => void;
   /** WebGL could not start: draw the static dot instead of a blank square. */
   orbUnavailable?: boolean;
   /** No spinning orbit ring when the user asked for reduced motion. */
@@ -24,8 +24,8 @@ export interface TaskSummaryProps {
 
 function TaskSummaryImpl(props: TaskSummaryProps): React.ReactElement {
   const ball = React.useCallback(
-    (canvas: HTMLCanvasElement | null): void => props.bindOrbCanvas(canvas),
-    [props.bindOrbCanvas],
+    (el: HTMLDivElement | null): void => props.bindOrbSlot(el),
+    [props.bindOrbSlot],
   );
 
   const title = taskTitleOf(props.task);
@@ -36,12 +36,7 @@ function TaskSummaryImpl(props: TaskSummaryProps): React.ReactElement {
   return (
     <section className="no-hud-summary" aria-label="当前任务">
       <div className="no-hud-ball">
-        <canvas
-          ref={ball}
-          className="no-hud-ball-canvas"
-          role="img"
-          aria-label="Agent 3D 能量球"
-        />
+        <div ref={ball} className="no-hud-ball-slot" role="img" aria-label="Agent 3D 能量球" />
         {props.orbUnavailable === true ? (
           <span className="no-hud-ball-fallback" aria-hidden="true">
             <i />

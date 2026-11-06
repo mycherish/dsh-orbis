@@ -168,7 +168,7 @@ export function buildHudStyles(): string {
 /* ---------- summary: ball + title ---------- */
 .no-hud-summary{display:grid;grid-template-columns:${HUD_LAYOUT.ball}px minmax(0,1fr);gap:14px;align-items:center}
 .no-hud-ball{position:relative;width:${HUD_LAYOUT.ball}px;height:${HUD_LAYOUT.ball}px;flex:0 0 auto}
-.no-hud-ball-canvas{
+.no-hud-ball-slot{
   position:absolute;inset:0;
   display:block;
   width:${HUD_LAYOUT.ball}px;height:${HUD_LAYOUT.ball}px;
@@ -356,7 +356,7 @@ export function buildHudStyles(): string {
   .no-hud-panel{top:64px;right:12px;width:calc(100vw - 24px);max-height:calc(100vh - 96px)}
   .no-hud-mini{top:64px;right:12px;width:calc(100vw - 24px)}
   .no-hud-summary{grid-template-columns:72px minmax(0,1fr);gap:12px}
-  .no-hud-ball,.no-hud-ball-canvas{width:72px;height:72px}
+  .no-hud-ball,.no-hud-ball-slot{width:72px;height:72px}
   .no-hud-title{font-size:15.5px}
 }
 

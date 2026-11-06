@@ -1,16 +1,21 @@
 /**
- * The overlay root: one entry in `shell.overlay` that owns the always-on HUD,
- * the launcher, the workspace, all three orb canvases, the SSE transport and
- * every lifecycle rule (master switch, pause when hidden, release on close,
- * follow the displayed Session).
+ * The overlay root: the plugin's **only** entry in `shell.overlay`.
+ *
+ * It resolves one `OverlayMode` (compact / expanded / workspace / hidden) and
+ * mounts exactly the surfaces that mode allows — one orb, at most one panel.
+ * The orb itself is a single `<canvas>` created once here and *moved* into
+ * whichever slot is mounted, so switching modes never creates a second WebGL
+ * renderer (spec: 单一 Overlay Root，禁止同时渲染两个 OrbVisual).
  *
  * The master switch (`settings.enabled`) is a real switch, not a visual one:
  * while it is off there is no transport, no polling, no renderer and no timer —
  * the overlay renders one small affordance that turns it back on.
  */
 import * as React from 'react';
-import { LAUNCHER_SIZE, ORBIT_PALETTE, type OrbQuality, type OrbRenderer, type OrbitSettings, type OrbVisualState } from './contracts';
+import { LAUNCHER_SIZE, ORBIT_PALETTE, type OrbQuality, type OrbitSettings, type OrbVisualState } from './contracts';
 import { createOrbRenderer } from './orb';
+import { createOrbOwner } from './orb-owner';
+import { overlayModeOf, showsRestoreDot, surfacesOf } from './overlay';
 import { Launcher, LauncherRestore } from './launcher';
 import { NeuralOrbitHUD } from './hud';
 import { WorkspaceView } from './workspace';
@@ -33,17 +38,6 @@ export interface OrbitLayerProps {
 
 const FPS_SAMPLE_MS = 1000;
 
-/**
- * Is the always-on panel allowed to draw right now?
- *
- * Pure, and used twice on purpose: once to decide the HUD ball renderer's
- * `active` flag and once for the JSX, so the canvas can never be animating
- * while the panel itself is hidden (or vice versa).
- */
-function hudVisibleFor(settings: OrbitSettings, visible: boolean, open: boolean): boolean {
-  return settings.showHud && settings.displayMode !== 'orb' && visible && !open;
-}
-
 /** Remember the last Session the main column displayed. */
 let lastSessionId: string | undefined;
 
@@ -55,67 +49,74 @@ const ENABLE_CSS = `
 @media (max-width:720px){.no-enable{right:12px;bottom:12px}}
 `;
 
+/** The one canvas, plus the slot styles it inherits wherever it is mounted. */
+const ORB_CSS = `
+.no-orb-canvas{display:block;width:100%;height:100%;border-radius:inherit}
+.no-orb-slot{position:relative;display:block}
+`;
+
 interface RendererHandle {
   fps: number;
   failed: boolean;
 }
 
 /**
- * Own one renderer for one canvas: created on mount, updated in place for every
- * state/quality change, disposed on unmount. Never re-created per snapshot.
+ * Bind the plugin's single canvas to an owner that never builds a second
+ * renderer. The canvas is moved between slots (launcher → HUD → workspace) as
+ * the overlay mode changes; the WebGL context is created once and disposed when
+ * the overlay unmounts or the master switch turns the overlay off.
  */
-function useOrbRenderer(
+function useOrbOwner(
   canvas: HTMLCanvasElement | null,
   visual: OrbVisualState,
   quality: OrbQuality,
   active: boolean,
 ): RendererHandle {
-  const rendererRef = React.useRef<OrbRenderer | null>(null);
+  const ownerRef = React.useRef<ReturnType<typeof createOrbOwner> | null>(null);
   const visualRef = React.useRef(visual);
   visualRef.current = visual;
+  const qualityRef = React.useRef(quality);
+  qualityRef.current = quality;
   const [failed, setFailed] = React.useState(false);
   const [fps, setFps] = React.useState(0);
 
+  if (ownerRef.current === null) ownerRef.current = createOrbOwner(createOrbRenderer);
+  const owner = ownerRef.current;
+
+  // Create (once) and release on unmount: exactly one renderer per page.
   React.useEffect(() => {
     if (canvas === null) return undefined;
-    const renderer = createOrbRenderer({ canvas, state: visualRef.current, quality });
-    rendererRef.current = renderer;
-    if (renderer === null) {
-      setFailed(true);
-      return undefined;
-    }
-    setFailed(false);
-    renderer.start();
-    const timer = setInterval(() => setFps(renderer.fps()), FPS_SAMPLE_MS);
+    owner.attach(canvas, visualRef.current, qualityRef.current);
+    setFailed(owner.failed);
     return () => {
-      clearInterval(timer);
-      renderer.dispose();
-      rendererRef.current = null;
+      owner.detach();
       setFps(0);
     };
-    // `quality` is intentionally excluded: quality changes update in place.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvas]);
+  }, [canvas, owner]);
 
   React.useEffect(() => {
-    rendererRef.current?.setState(visual);
-  }, [visual]);
+    owner.update(visual, quality);
+  }, [owner, visual, quality]);
 
   React.useEffect(() => {
-    rendererRef.current?.setQuality(quality);
-  }, [quality]);
+    if (active) owner.start();
+    else owner.pause();
+  }, [owner, active]);
 
   React.useEffect(() => {
-    const renderer = rendererRef.current;
-    if (renderer === null) return;
-    if (active) renderer.start();
-    else renderer.pause();
-  }, [active, failed]);
+    if (!active) return undefined;
+    const timer = setInterval(() => setFps(owner.fps()), FPS_SAMPLE_MS);
+    return () => clearInterval(timer);
+  }, [owner, active]);
 
   React.useEffect(() => {
-    const onResize = (): void => rendererRef.current?.resize();
+    const onResize = (): void => owner.resize();
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
+  }, [owner]);
+
+  React.useEffect(() => () => {
+    ownerRef.current?.detach();
   }, []);
 
   return { fps, failed };
@@ -218,32 +219,66 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
   const visual = React.useMemo(() => deriveVisual(snapshot, connection), [snapshot, connection]);
   const quality = React.useMemo(() => resolveQuality(settings, systemReduce), [settings, systemReduce]);
 
-  const [launcherCanvas, setLauncherCanvas] = React.useState<HTMLCanvasElement | null>(null);
-  const [workspaceCanvas, setWorkspaceCanvas] = React.useState<HTMLCanvasElement | null>(null);
-  const [hudCanvas, setHudCanvas] = React.useState<HTMLCanvasElement | null>(null);
-
-  // The launcher rests while the workspace is open: two live contexts at once
-  // would spend GPU on something the panel already covers. With the master
-  // switch off nothing runs at all.
-  const launcherActive = enabled && visible && !open && !suspended;
-  const launcher = useOrbRenderer(launcherCanvas, visual, quality, launcherActive);
-  const workspace = useOrbRenderer(workspaceCanvas, visual, quality, enabled && open && !suspended);
+  const agentState = snapshot?.agentState ?? 'idle';
 
   /*
-   * The HUD's own ball is drawn by this same renderer factory (never a second
-   * WebGL implementation): the panel only owns a `<canvas>` and hands it up.
-   * Closed HUD → `null` → the renderer is disposed and the GPU memory released.
+   * One mode decides the whole overlay. Every surface below is gated on it, so
+   * two floating entries cannot coexist (spec §3).
    */
-  const hudActive = enabled && hudVisibleFor(settings, visible, open) && !suspended;
-  const hud = useOrbRenderer(hudCanvas, visual, quality, hudActive);
+  const mode = overlayModeOf({
+    enabled,
+    displayMode: settings.displayMode,
+    showHud: settings.showHud,
+    showWorkspace: settings.showWorkspace,
+    open,
+    visible,
+    collapsed: hudCollapsed,
+    pinned: hudPinned,
+    state: agentState,
+  });
+  const surfaces = surfacesOf(mode);
+
+  /*
+   * One canvas for the whole plugin, created once and moved into whichever
+   * slot the current mode mounts. Moving a canvas keeps its WebGL context, so
+   * mode switches cost zero contexts and never leave a second renderer behind.
+   */
+  const orbCanvas = React.useMemo(() => {
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.className = 'no-orb-canvas';
+    canvas.setAttribute('aria-hidden', 'true');
+    return canvas;
+  }, []);
+  const [orbSlot, setOrbSlot] = React.useState<HTMLElement | null>(null);
+  const bindOrbSlot = React.useCallback((el: HTMLElement | null) => {
+    setOrbSlot(el);
+  }, []);
+
+  React.useEffect(() => {
+    if (orbCanvas === null || orbSlot === null) return undefined;
+    const current = orbCanvas.parentElement;
+    if (current !== orbSlot) orbSlot.appendChild(orbCanvas);
+    return () => {
+      if (orbCanvas.parentElement === orbSlot) orbSlot.removeChild(orbCanvas);
+    };
+  }, [orbCanvas, orbSlot]);
+
+  const orbActive = surfaces.orb === 1 && !suspended && settings.animate;
+  const orb = useOrbOwner(orbCanvas, visual, quality, orbActive);
 
   React.useEffect(() => {
     if (!enabled) {
       setFps(0);
       return;
     }
-    setFps(open ? workspace.fps : launcher.fps);
-  }, [enabled, launcher.fps, workspace.fps, open, setFps]);
+    setFps(orb.fps);
+  }, [enabled, orb.fps, setFps]);
+
+  // `showWorkspace: false` must not leave an orphaned panel on screen.
+  React.useEffect(() => {
+    if (open && !settings.showWorkspace) setOpen(false);
+  }, [open, settings.showWorkspace, setOpen]);
 
   // ---- ESC closes the workspace ------------------------------------------
   React.useEffect(() => {
@@ -257,23 +292,23 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [enabled, open, setOpen]);
 
-  const bindLauncherCanvas = React.useCallback((canvas: HTMLCanvasElement | null) => {
-    setLauncherCanvas(canvas);
-  }, []);
-
-  const bindWorkspaceCanvas = React.useCallback((canvas: HTMLCanvasElement | null) => {
-    setWorkspaceCanvas(canvas);
-  }, []);
-
-  const bindHudCanvas = React.useCallback((canvas: HTMLCanvasElement | null) => {
-    setHudCanvas(canvas);
-  }, []);
-
   // ---- always-on HUD wiring ----------------------------------------------
   const collapseHud = React.useCallback(() => setHudCollapsed(true), [setHudCollapsed]);
   const expandHud = React.useCallback(() => setHudCollapsed(false), [setHudCollapsed]);
   const pinHud = React.useCallback((next: boolean) => setHudPinned(next), [setHudPinned]);
   const openWorkspace = React.useCallback(() => setOpen(true), [setOpen]);
+  /**
+   * The compact orb is the only entry point in `compact` mode. In `auto` it
+   * unfolds the panel; when the user pinned the ball-only mode it opens the
+   * detailed Workspace instead, because there is no panel to unfold.
+   */
+  const activateOrb = React.useCallback(() => {
+    if (settings.displayMode === 'compact' || settings.displayMode === 'orb' || !settings.showHud) {
+      setOpen(true);
+      return;
+    }
+    setHudCollapsed(false);
+  }, [setHudCollapsed, setOpen, settings.displayMode, settings.showHud]);
 
   // ---- master switch off: one affordance, and nothing else ---------------
   if (!enabled) {
@@ -293,47 +328,24 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
     );
   }
 
-  const agentState = snapshot?.agentState ?? 'idle';
   const activeTools = snapshot?.activeTools ?? 0;
-  // `orb` mode is the "能量球 only" choice; `showHud: false` hides the panel too.
-  const hudVisible = hudVisibleFor(settings, visible, open);
 
   return (
     <React.Fragment>
-      {open ? (
+      <style>{ORB_CSS}</style>
+      {surfaces.workspace ? (
         <WorkspaceView
           snapshot={snapshot}
           connection={connection}
           settings={settings}
-          fps={workspace.fps}
-          orbUnavailable={workspace.failed}
-          bindOrbCanvas={bindWorkspaceCanvas}
+          fps={orb.fps}
+          orbUnavailable={orb.failed}
+          bindOrbSlot={bindOrbSlot}
           onSettingsChange={patchSettings}
           onClose={() => setOpen(false)}
         />
       ) : null}
-      {visible ? (
-        <Launcher
-          position={position}
-          agentState={agentState}
-          activeTools={activeTools}
-          connection={connection}
-          open={open}
-          translate={translate}
-          onToggle={() => setOpen(!open)}
-          onHide={() => setVisible(false)}
-          onPositionChange={setPosition}
-          bindCanvas={bindLauncherCanvas}
-        />
-      ) : (
-        <LauncherRestore
-          position={position}
-          agentState={agentState}
-          translate={translate}
-          onRestore={() => setVisible(true)}
-        />
-      )}
-      {hudVisible ? (
+      {surfaces.hud ? (
         <NeuralOrbitHUD
           snapshot={snapshot}
           connection={connection}
@@ -341,12 +353,35 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
           collapsed={hudCollapsed}
           pinned={hudPinned}
           reduceMotion={quality.reduceMotion}
-          orbUnavailable={hud.failed}
-          bindOrbCanvas={bindHudCanvas}
+          orbUnavailable={orb.failed}
+          bindOrbSlot={bindOrbSlot}
           onCollapse={collapseHud}
           onExpand={expandHud}
           onOpenWorkspace={openWorkspace}
           onPin={pinHud}
+        />
+      ) : null}
+      {mode === 'compact' ? (
+        <Launcher
+          position={position}
+          agentState={agentState}
+          activeTools={activeTools}
+          connection={connection}
+          open={false}
+          translate={translate}
+          orbUnavailable={orb.failed}
+          onToggle={activateOrb}
+          onHide={() => setVisible(false)}
+          onPositionChange={setPosition}
+          bindOrbSlot={bindOrbSlot}
+        />
+      ) : null}
+      {showsRestoreDot({ enabled, visible }, mode) ? (
+        <LauncherRestore
+          position={position}
+          agentState={agentState}
+          translate={translate}
+          onRestore={() => setVisible(true)}
         />
       ) : null}
       <span hidden aria-hidden="true" data-neural-orbit-launcher-size={LAUNCHER_SIZE} />

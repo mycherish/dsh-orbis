@@ -85,10 +85,10 @@ export interface WorkspaceViewProps {
    */
   orbUnavailable: boolean;
   /**
-   * Hands the canvas the orb draws into to the shell; call with `null` when it
-   * unmounts. The panel never creates the renderer itself.
+   * Hands the orb slot to the shell; call with `null` when it unmounts. The
+   * panel never creates a renderer — the shell moves its one canvas in here.
    */
-  bindOrbCanvas: (canvas: HTMLCanvasElement | null) => void;
+  bindOrbSlot: (el: HTMLElement | null) => void;
   onSettingsChange: (patch: Partial<OrbitSettings>) => void;
   onClose: () => void;
 }

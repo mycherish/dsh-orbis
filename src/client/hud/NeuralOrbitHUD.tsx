@@ -51,10 +51,10 @@ export interface NeuralOrbitHUDProps {
   /** True when the shell could not create a WebGL context for the ball. */
   orbUnavailable?: boolean;
   /**
-   * Hands the ball canvas to the shell; call with `null` on unmount. The HUD
+   * Hands the orb slot to the shell; call with `null` on unmount. The HUD
    * never creates a renderer itself, so no second WebGL context can appear.
    */
-  bindOrbCanvas: (canvas: HTMLCanvasElement | null) => void;
+  bindOrbSlot: (el: HTMLElement | null) => void;
   onCollapse: () => void;
   onExpand: () => void;
   onOpenWorkspace: () => void;
@@ -175,7 +175,7 @@ export function NeuralOrbitHUD(props: NeuralOrbitHUDProps): React.ReactElement |
         <TaskSummary
           task={task}
           state={state}
-          bindOrbCanvas={props.bindOrbCanvas}
+          bindOrbSlot={props.bindOrbSlot}
           orbUnavailable={props.orbUnavailable === true}
           reduceMotion={reduceMotion}
         />

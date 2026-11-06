@@ -1,30 +1,46 @@
 # Neural Orbit
 
-3D AI Agent 状态伴侣与执行过程可视化（DeepSeek Harness Web 插件）。
+3D AI Agent 状态伴侣 + Always-on 工作进度 HUD（DeepSeek Harness Web 插件）。
 
-右下角一颗悬浮的 3D 能量球，实时反映 Agent 正在做什么：思考、执行工具、等你确认、出错、完成。点开是一整块磨砂玻璃工作空间：左边是活的能量球与空间节点，右边是实时活动记录，底部是执行时间线与统计。
+**不用打开任何面板**：Agent 一开始工作，右下角就浮出一张玻璃进度卡，实时告诉你它此刻在思考、在准备工具、在执行、在回复、等你确认，还是已经静默了 34 秒。想要细节时再点开：一颗活的 3D 能量球 + 一整块磨砂玻璃工作空间（能量球、活动记录、执行时间线、统计）。
 
-- 所有状态来自 **DSH 真实事件**，不调用 LLM，不读取模型推理内容。
+- 所有状态来自 **DSH 真实事件**，不调用 LLM，不消耗 Token，不读取模型推理内容。
 - 只读、只观察：不执行工具、不写会话、不落库。
-- 不修改 DSH 源码；Host 与 Client 各自可独立停用。
+- 不修改 DSH 源码；Host 与 Client 各自可独立停用；总开关关闭后连渲染器一起释放。
 
 ## 预览
 
-六状态的 3D 能量球（无头 Chrome + SwiftShader 真实渲染，非示意图）：
+十一状态的 3D 能量球（headless Chrome + SwiftShader 真实 WebGL 渲染，非示意图）：
 
-![六状态能量球](docs/orb-states.png)
+![十一状态能量球](docs/orb-states-v2.png)
 
-Workspace 面板（静态渲染：左侧 canvas 区在真实运行时会填入上面那颗球）：
+Always-on HUD：执行中 / 回复中 / 静默中，以及用户手动收起后的紧凑胶囊：
+
+![Always-on 进度卡](docs/hud.png)
+
+Workspace 面板与设置（v1 截图，v2 布局未变，仅新增 4 项设置与 11 状态文案）：
 
 ![Workspace 面板](docs/workspace.png)
-
-设置面板：
 
 ![设置](docs/workspace-settings.png)
 
 ---
 
 ## 一、它能做什么
+
+### Always-on HUD 进度卡（v2 新增）
+
+| 项 | 值 |
+|---|---|
+| 尺寸 | 宽 260–300px、高 120–160px（`clamp(260px, 24vw, 300px)`） |
+| 位置 | 右下角，`bottom: 104px`（避开输入框与能量球）；球被拖上来时卡片自动避让 |
+| 内容 | 状态主语 + 具体对象（`bash · hub.ts`、`第 5 轮 · 第 176 步`、`已静默 34 秒`）+ 细进度条 + 两个按钮 |
+| 自动展开 | `auto` 模式下 Agent 活跃即展开，回到 idle/quiet 收成单行胶囊 |
+| 手动收起 | 点 × 后**永不自动弹回**，只有用户自己点「展开」才恢复（状态持久化） |
+| 三种模式 | `auto` 自动展开 / `compact` 始终紧凑 / `orb` 仅球体（不显示卡片） |
+| 小屏 | ≤720px 改为顶部浮动、宽度收窄 |
+
+卡片是纯 DOM + 一段作用域内的 CSS（`.no-hud-` 前缀），不新建 WebGL 上下文、不新增依赖，因此 Client 产物只比 v1 大 1 kB。
 
 ### 悬浮能量球（Launcher）
 
@@ -40,24 +56,42 @@ Workspace 面板（静态渲染：左侧 canvas 区在真实运行时会填入�
 
 780×600，最大 94vw×88vh，深色磨砂玻璃：
 
-- 顶部：产品名、六状态胶囊、SSE 连接状态、关闭按钮。
+- 顶部：产品名、状态胶囊、SSE 连接状态、关闭按钮。
 - 左侧：3D 能量球 + 节点图例。
 - 右侧：实时活动记录（最多 40 条，最新在上）：工具/文件/审批/Agent 四类，带状态色、相对时间、耗时、截断后的目标文件名。
-- 底部：执行时间线 + 统计（轮次 / 工具 / 文件 / 在跑工具 / 实测帧率）。
-- 设置：帧率 30/60、粒子 low/medium/high、轨道开关、光效开关、减少动态效果、隐藏时暂停。
+- 底部：执行时间线 + 统计（轮次 / 步数 / 工具 / 文件 / 在跑工具 / 实测帧率）。
+- 设置：总开关、显示模式、常驻卡片开关、活动列表开关、帧率 30/60、粒子密度、轨道、光效、减少动态、后台暂停。
 
-### 六状态
+### 十一状态
 
-| 状态 | 触发 | 视觉 |
+| 状态 | 触发（全部为真实事件） | 视觉 |
 |---|---|---|
-| idle | `agent/status: idle` | 蓝，缓慢呼吸 |
-| thinking | `agent/status: running` | 紫，能量脉冲 |
-| executing | 有未完成的 `tool/call` | 青蓝，粒子流动 |
-| waiting | `approval/request` | 琥珀，轨道减速 |
-| error | `agent/error` 或 `turn/end` 且 reason=error | 红，短促警示 |
-| completed | `agent/turn-stopping` / `turn/end` | 绿，能量聚合扩散 |
+| `idle` | 无在跑工作 | 蓝，缓慢呼吸 |
+| `starting` | `turn/start` 后还没有 step | 蓝，略活跃 |
+| `thinking` | `step/start`、`reasoning-delta`、attempt 开始 | 紫，能量脉冲 |
+| `preparing` | `tool-call-delta`（工具参数正在生成） | 青紫之间，流体加快 |
+| `executing` | 有未结算的 `tool/call` | 青蓝，粒子高速流动 |
+| `responding` | 首个 `text-delta` | 紫，流体更快 |
+| `waiting` | `approval/asked`（未决） | 琥珀，轨道减速 |
+| `quiet` | 运行中且静默 ≥10s、无工具在跑 | 灰蓝，全场最静，只留一丝微光 |
+| `completed` | `turn/end{completed\|max-tokens}`、`agent/turn-stopping` | 绿，能量聚合扩散 |
+| `interrupted` | `turn/end{interrupted\|aborted}`、`assistant/message.interrupted` | 琥珀，短暂高频 |
+| `error` | `agent/error`、`turn/end{error\|blocked}` | 红，短促警示 |
 
-优先级 `waiting > error > completed > executing > thinking > idle`，其中 `executing` 由**在跑工具计数**驱动（并行工具不会互相覆盖），`completed` / `error` 是**带寿命的保持态**（默认 2500ms / 4000ms），到期自动回落 `idle`。
+优先级：
+
+```
+waiting > error > interrupted > completed > executing
+        > quiet > responding > preparing > thinking > starting > idle
+```
+
+三条关键规则：
+
+1. **`agent/status: running` ≠ 在思考**。运行时会话循环只有 `idle/running/maintenance` 三态，唤醒也会先报 running，所以它最多把状态带到 `starting`；真正的"思考"要等 `step/start` 或 `reasoning-delta`。
+2. **`executing` 不吃静默**。一个跑 3 分钟的命令仍是"执行中"，静默档位单独上报（`quietLevel` 0–3），不把"在干活"误判成"卡住"。
+3. **`completed` / `interrupted` / `error` 是带寿命的保持态**（2500ms / 3000ms / 4000ms），到期自动回落。
+
+静默四档：`0–10s` / `10–30s` / `30–60s` / `>60s`，用 `performance.now()` 单调时钟测量，系统时间跳变不会凭空制造静默。
 
 ---
 
@@ -65,19 +99,21 @@ Workspace 面板（静态渲染：左侧 canvas 区在真实运行时会填入�
 
 ```
 DSH Host 进程                         浏览器（DSH Web GUI）
-┌───────────────────────────┐         ┌──────────────────────────────────┐
-│ session/event             │         │ shell.overlay 入口（OrbitLayer）  │
-│ agent/status              │         │  ├ Launcher（76px 3D 球）         │
-│ agent/turn-stopping       │         │  ├ Workspace（玻璃面板 / 3D 大球）│
-│ agent/error               │         │  ├ transport（SSE + 轮询兜底）    │
-│ approval/request          │         │  └ store（zustand + localStorage）│
-│        ↓                  │         │                ↑                 │
-│ normalize（白名单化）      │         │                │                 │
-│        ↓                  │  SSE    │                │                 │
-│ 状态机 + 40 条活动环形缓冲  │ ──────▶ │  GET /api/neural-orbit/events    │
-│        ↓                  │  JSON   │  GET /api/neural-orbit/state     │
-│ OrbitSnapshot             │         │                                  │
-└───────────────────────────┘         └──────────────────────────────────┘
+┌──────────────────────────────┐      ┌───────────────────────────────────┐
+│ session/event（14 类会话事件）│      │ shell.overlay 入口（OrbitLayer）   │
+│ agent/assistant-stream       │      │  ├ HUD 进度卡（纯 DOM，常驻）      │
+│ agent/status / error         │      │  ├ Launcher（76px 3D 球）          │
+│ agent/turn-stopping /disposed│      │  ├ Workspace（玻璃面板 / 3D 大球） │
+│ approval/request（瀑布）      │      │  ├ transport（SSE + 轮询兜底）     │
+│        ↓                     │      │  └ store（zustand + localStorage） │
+│ normalize（白名单化）         │      │                ↑                  │
+│ categories（10 族分类）       │      │                │                  │
+│ correlation（callId 关联）    │ SSE  │                │                  │
+│ stream（瞬时帧→相位）         │─────▶│  GET /api/neural-orbit/events     │
+│ quiet（单调时钟静默）         │ JSON │  GET /api/neural-orbit/state      │
+│ 11 状态机 + 40 条环形缓冲     │      │                                   │
+│ OrbitSnapshot                │      │                                   │
+└──────────────────────────────┘      └───────────────────────────────────┘
 ```
 
 源码目录：
@@ -85,17 +121,22 @@ DSH Host 进程                         浏览器（DSH Web GUI）
 | 路径 | 职责 |
 |---|---|
 | `src/shared/protocol.ts` | 唯一共享契约：`OrbitSnapshot` / `OrbitActivity` / 常量 |
-| `src/host/index.ts` | 插件入口：挂事件、起 ticker、注册路由、卸载清理 |
-| `src/host/hub.ts` | 每会话状态fold、40 条环形缓冲、会话 LRU、订阅广播 |
-| `src/host/state-machine.ts` | 六状态机（纯函数，可测） |
-| `src/host/normalize.ts` | DSH 事件 → 活动行（安全边界，纯函数） |
+| `src/host/index.ts` | 插件入口：挂 7 个监听、起 ticker、注册路由、卸载清理 |
+| `src/host/hub.ts` | 每会话状态 fold、双时钟、40 条环形缓冲、会话 LRU、通知节流 |
+| `src/host/state-machine.ts` | 十一状态机（纯函数，可测） |
+| `src/host/correlation.ts` | callId 关联：乱序 / 重复 / 结果先到 / 超时 |
+| `src/host/stream.ts` | 瞬时帧折叠（只读类型标签） |
+| `src/host/quiet.ts` | 单调时钟与静默四档 |
+| `src/host/categories.ts` | 工具分类注册表 + `other` 兜底 |
+| `src/host/normalize.ts` | DSH 事件 → Activity DTO（安全边界，纯函数） |
 | `src/host/routes.ts` | `/state` 与 `/events`（SSE）只读路由 |
 | `src/client/index.tsx` | 浏览器入口：注册 `shell.overlay` + 词典 |
-| `src/client/layer.tsx` | 覆盖层编排：生命周期、暂停规则、双渲染器 |
+| `src/client/layer.tsx` | 覆盖层编排：总开关、生命周期、HUD 挂载、双渲染器 |
+| `src/client/hud/` | Always-on 进度卡（纯函数规则 + 卡片组件） |
 | `src/client/launcher.tsx` | 悬浮球（拖动 / 隐藏 / 提示） |
-| `src/client/working` → `src/client/workspace/` | 玻璃工作空间面板（独立模块） |
-| `src/client/orb/` | three.js 能量球渲染器（独立模块） |
-| `src/client/store.ts` | zustand store + localStorage 持久化 |
+| `src/client/workspace/` | 玻璃工作空间面板 |
+| `src/client/orb/` | three.js 能量球渲染器 |
+| `src/client/store.ts` | zustand store + localStorage 持久化 + v1 迁移 |
 | `src/client/transport.ts` | SSE 客户端 + 自动重连 + 轮询兜底 |
 | `src/client/visual.ts` | 快照 → 渲染输入（强度/质量档位/跟随会话） |
 
@@ -103,25 +144,30 @@ DSH Host 进程                         浏览器（DSH Web GUI）
 
 | DSH 事件 | 用途 |
 |---|---|
-| `session/event` `tool/call` | 建活动节点（running），按工具家族分类 |
-| `session/event` `tool/result` | 结节点（success/error）+ 耗时（取 `message.toolCallId`） |
-| `session/event` `turn/start` `turn/end` | 轮次计数、状态转移、清空在跑工具 |
-| `agent/status` | running/idle |
-| `agent/turn-stopping` | 完成动画起点 |
-| `agent/error` | 错误态（只取白名单错误码） |
-| `approval/request` | 等待确认态（waterfall 监听后必定 `next()`，不改变审批结果） |
+| `turn/start` | `starting`、轮次计数 |
+| `step/start` / `step/end` | `thinking`、步数计数 |
+| `tool/call` | 建活动行（running），按 10 族分类，按 `callId` 记账 |
+| `tool/result` | 结行（success/error/cancelled）+ 耗时（取 `message.toolCallId`） |
+| `approval/asked` / `approval/decided` | 审批行 + `waiting`，四种 outcome 各自落账 |
+| `assistant/message`（`interrupted: true`） | `interrupted` |
+| `llm/retry` | 重试计数（failure 正文不转发） |
+| `turn/end` | 按 7 种 `reason.kind` 收束，清算所有在跑工具 |
+| `agent/assistant-stream` | 实时相位：`reasoning-delta`→思考、`text-delta`→回复、`tool-call-delta`→准备 |
+| `agent/status` / `turn-stopping` / `error` / `disposed` | 弱信号 / 完成动画 / 错误态 / 会话清理 |
+| `approval/request`（瀑布） | 立刻点亮等待态；必定 `next()`，不改变审批结果 |
 
 ---
 
 ## 三、安全与隐私
 
 - **白名单**：浏览器只能看到工具家族、工具名、截断后的 **basename**、状态、时间、耗时、白名单错误码。
-- **绝不外发**：工具参数原文、命令内容、文件内容、提示词、模型推理、完整对话、绝对路径、家目录、用户名。
+- **DTO 里没有的字段**（有单测逐条断言）：`rawArguments`、`rawCommand`、`fileContent`、`reasoningText`、`userMessage`、`rawToolResult`。
+- **流式帧只读类型标签**：`chunk.type` 之外的内容（`text`、`argumentsDelta`）从不读取、不存储、不传输。
 - 路径只取最后一段（`/Users/alice/secret/plan.md` → `plan.md`），并截断到 40 字符。
 - 前端全部 React 文本渲染，无 `innerHTML`。
 - 只读 API：没有任何写操作、执行操作或远程命令入口。
 - 路由随插件卸载注销；SSE 连接在卸载与客户端断开时关闭。
-- 不新增遥测、不访问第三方域名。
+- 不新增遥测、不访问第三方域名、不产生额外 LLM 调用。
 
 ---
 
@@ -129,11 +175,14 @@ DSH Host 进程                         浏览器（DSH Web GUI）
 
 - 默认 30 FPS，可选 60；渲染器内部按累计时间节流，不会超帧。
 - `devicePixelRatio` 上限 1.5；粒子数 low≈120 / medium≈260 / high≈480（均 < 500）。
+- HUD 是纯 DOM，无 WebGL、无自有定时器；只在快照变化时重渲染。
+- 瞬时流式帧最多几十帧/秒，但 Host 对订阅者按 120ms 窗口节流推送，SSE 不会被刷爆。
 - 标签页隐藏、窗口失焦、Workspace 关闭时暂停对应渲染循环；悬浮球在 Workspace 打开时也暂停（省一个 GPU 上下文）。
 - 渲染器随 canvas 创建一次，状态更新只调用 `setState`，**不会重建场景**。
 - 关闭 Workspace 即 `dispose()`：释放 geometry / material / texture / renderer。
-- Host 侧每会话 40 条活动、最多 8 个会话 LRU，ticker 250ms 且无保持态时立即返回。
-- 减少动态效果（跟随系统）时自动降为低粒子、关光效。
+- **总开关关闭**：不建 EventSource、不建渲染器、不装定时器、清空快照，只留一个「启用」按钮。
+- Host 侧每会话 40 条活动、最多 8 个会话 LRU，ticker 250ms 且无待处理状态时立即返回；孤儿工具调用 10 分钟自动结算，不会把状态钉在 `executing`。
+- 减少动态效果（跟随系统）时自动降为低粒子、关光效、停呼吸动画。
 
 ---
 
@@ -149,8 +198,7 @@ pnpm verify         # build + typecheck + test
 ```
 
 - **构建**：`scripts/build.mjs` 用 esbuild 直接产出两个产物；`client.js` 由打包后的 CJS 体包进 `window.__ModuleLoader__.load({ id, factory(require) })` 信封，`react` 保持 external（由页面模块表提供），`three` 与 `zustand` 打进包内（离线可用，不依赖 CDN）。
-- 未使用 Vite：本插件只需要两个入口的单文件产物，esbuild 直接完成即可，少一层配置；这是与需求文档 §4 的唯一构建差异。
-- 若日后换回 Vite/tsdown，只需保持 `index.js`（ESM，默认导出 `apply`）与 `client.js`（ModuleLoader 信封）两个产物形态不变。
+- 未使用 Vite：本插件只需要两个入口的单文件产物，esbuild 直接完成即可，少一层配置。
 
 ### 安装 / 卸载
 
@@ -159,7 +207,7 @@ plugin_manager install_bundle  target=/Users/xuweidong/Desktop/Wayne/neural-orbi
 plugin_manager remove_bundle   target=dsh-neural-orbit
 ```
 
-安装后刷新一次 Harness 页面（浏览器半每个页面代次只加载一次），右下角出现能量球。
+安装后刷新一次 Harness 页面（浏览器半每个页面代次只加载一次），右下角出现进度卡与能量球。
 
 ---
 
@@ -169,30 +217,33 @@ plugin_manager remove_bundle   target=dsh-neural-orbit
 
 | 项 | 命令 / 方式 | 结果 |
 |---|---|---|
-| Host 类型检查（`strict` + `noUncheckedIndexedAccess`） | `tsc --noEmit -p tsconfig.json` | ✅ 0 错误 |
-| 单元 / 集成测试 | `vitest run` | ✅ **48 项 / 6 文件**全过 |
-| 构建 | `node scripts/build.mjs` | ✅ `index.js` 23.1 kB、`client.js` 639.4 kB（29 模块，three+zustand 已打入） |
-| 产物形态（ModuleLoader 信封 / `apply` / `inject` / 槽位注册） | 9 项断言 | ✅ 全过 |
-| 安全扫描（产物） | 无远程 URL、无 `eval`/`new Function`、无 `innerHTML`、`react` 保持 external、无子进程/文件写 | ✅ 全部为 0 |
-| Host 行激活 | `plugin_manager list_plugins` | ✅ `include:neural-orbit` `fiberPhase: active` |
-| 浏览器入口 | Client `Slots.listSubTree('shell.overlay')` | ✅ `neural-orbit` 占用，order 120，`active: true` |
-| bundle 安装 | `plugin_manager install_bundle` | ✅ `application: applied`，无 warning |
+| 类型检查（`strict` + `noUncheckedIndexedAccess`） | `tsc --noEmit -p tsconfig.json` | ✅ 0 错误 |
+| 单元 / 集成测试 | `vitest run` | ✅ **164 项 / 13 文件**全过（v1 的 58 项全部保留） |
+| 构建 | `node scripts/build.mjs` | ✅ `index.js` 43.7 kB、`client.js` 655.7 kB（32 模块） |
+| 运行时数据通路 | `curl /api/neural-orbit/state` | ✅ 返回 v2 快照：`agentState: executing`、`turn: 5`、`step: 182`、`silenceMs: 4158`、`quietLevel: 0`、v2 DTO 行 |
+| 静默与执行态共存 | 同上（工具执行中连续采样） | ✅ `silenceMs` 44→2112→4158 递增，状态保持 `executing` |
+| Host 行激活 | `plugin_manager list_plugins` / `set_plugin` | ✅ 重载 `applied`，无 warning |
+| 十一状态渲染 | headless Chrome + SwiftShader | ✅ `docs/orb-states-v2.png` |
 
-测试覆盖：六状态机的全部文档化转移与优先级、并行工具、保持态过期；事件归一化与**路径/参数脱敏**（`/Users/alice/secret/plan.md` → `plan.md`，bash 命令不外发）；hub 的会话隔离、40 条上限、会话 LRU、版本自增；**SSE 路由**（首帧快照、变更推送、版本单调、卸载关流并注销路由）；Host 装配的端到端链路（事件进 → `/state` JSON 出、审批 waterfall 必须 `next()`）。
+测试覆盖要点：十一状态机的全部迁移与优先级、静默分档、`executing` 不吃静默；callId 乱序 / 重复 / 结果先到 / 超时 / drain；瞬时帧只暴露类型标签；审批双通道合并与四种 outcome；**路径与参数脱敏**；SSE 首帧 / 变更推送 / 版本单调 / 卸载关流；总开关关闭后的设置迁移与零副作用路径；HUD 文案与展开策略；11 状态动效签名两两互异。
 
-未覆盖（需人工在真实页面确认）：
+未覆盖（需在真实页面人工确认）：
 
-- 视觉合成：3D 球 + 玻璃面板 + 真实宿主背景的观感（子模块各自用 headless Chrome 验过 GLSL 编译与静态布局，但不是合成效果）。
-- 长时间内存曲线（30 分钟）、真实 GPU 下的 30/60 FPS 稳定性、Safari 的 `backdrop-filter`/`color-mix`。
+- HUD 与能量球、输入框在真实页面里的合成效果（截图是样式复刻，不是活页面）。
+- 总开关关闭后「无 SSE 连接 / 无 rAF / WebGL 上下文已释放」的 devtools 实测。
+- 长时间内存曲线（30 分钟）、真实 GPU 下的 60 FPS 稳定性、Safari 的 `backdrop-filter` / `color-mix`。
 
 ### 与需求文档的实现差异（有意为之）
 
-1. **构建用 esbuild 而非 Vite/tsdown**：本插件只需两个单文件产物，esbuild 直接产出即可，少一层配置。产物形态（ESM `index.js`、ModuleLoader 信封 `client.js`）与文档要求一致。
-2. **SSE 为主 + 轮询兜底**：若某个中间层缓冲了流，客户端在 2.5s 内收不到首帧就改为轮询 `/state`（900ms），一旦 SSE 恢复即停止轮询。协议与路由未变，只是让"实时"在任何环境下都能看到。
-3. **活动行一条对应一次工具调用**：文件类工具的那一条同时是"工具节点"和"文件节点"（带 `fileKind` + 脱敏 `target`），不重复两行。
+1. **构建用 esbuild 而非 Vite/tsdown**：两个单文件产物，esbuild 直接产出即可。
+2. **SSE 为主 + 轮询兜底**：若某个中间层缓冲了流，客户端 2.5s 内收不到首帧就改为轮询 `/state`（900ms），SSE 恢复即停。
+3. **活动行一条对应一次工具调用**：文件类工具那一条同时是"工具节点"和"文件节点"（带 `fileKind` + 脱敏 `safeTarget`），不重复两行。
+4. **`quiet` 只覆盖"没有工具在跑"的静默**：跑长命令时的静默由 `quietLevel` 单独上报，状态保持 `executing`，避免把"在干活"说成"卡住"。
+5. **协议版本升到 2**：DTO 字段更名（`name→label`、`timestamp→startedAt`、`target→safeTarget`），旧客户端读到会拒绝渲染。
 
 ### 上手
 
 1. 刷新一次 Harness 页面（浏览器半每个页面代次只加载一次）。
-2. 右下角出现 76px 能量球；点它展开 Workspace，`ESC` 或再点一次关闭。
-3. 悬停能量球可看到状态与在跑工具数，左上角 × 隐藏，隐藏后原地留小圆点可唤回。
+2. 让 Agent 干点活：右下角出现进度卡（默认 30 FPS，纯 DOM，不吃 GPU）。
+3. 点卡片上的「展开 Workspace」看细节；点卡片右上 × 收起后，它不会再自己弹出来。
+4. 设置里可以：关掉常驻卡片、切成"仅球体"、或一键关掉整个 Neural Orbit（连渲染器一起释放）。

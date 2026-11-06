@@ -39,20 +39,30 @@ export const LABELS = {
   },
   state: {
     idle: '待机',
+    starting: '启动中',
     thinking: '思考中',
+    preparing: '准备工具',
     executing: '执行中',
+    responding: '回复中',
     waiting: '等待确认',
-    error: '出错',
+    quiet: '静默中',
     completed: '已完成',
+    interrupted: '已中断',
+    error: '出错',
   } satisfies Record<OrbitAgentState, string>,
   /** Secondary, technical form shown next to the Chinese state word. */
   stateEn: {
     idle: 'IDLE',
+    starting: 'START',
     thinking: 'THINKING',
+    preparing: 'PREP',
     executing: 'EXECUTING',
+    responding: 'REPLYING',
     waiting: 'WAITING',
-    error: 'ERROR',
+    quiet: 'QUIET',
     completed: 'DONE',
+    interrupted: 'HALTED',
+    error: 'ERROR',
   } satisfies Record<OrbitAgentState, string>,
   connection: {
     connecting: '连接中',
@@ -97,6 +107,7 @@ export const LABELS = {
     success: '完成',
     error: '失败',
     waiting: '等待',
+    cancelled: '已取消',
   } satisfies Record<OrbitActivityStatus, string>,
   /** Fallback words for file rows whose flavour the Host did not send. */
   fileKind: {
@@ -109,7 +120,11 @@ export const LABELS = {
     'file-read': '读取',
     'file-write': '写入',
     search: '检索',
+    test: '运行测试',
     browser: '浏览',
+    subagent: '协作代理',
+    reasoning: '整理思路',
+    approval: '等待审批',
     other: '工具',
   } satisfies Record<OrbitToolCategory, string>,
   empty: {
@@ -148,6 +163,17 @@ export const LABELS = {
     milli: 'ms',
   },
   settings: {
+    enabled: {
+      label: '启用 Neural Orbit',
+      hint: '关闭后断开数据流、停止渲染并释放显存',
+    },
+    displayMode: {
+      label: '显示模式',
+      hint: '常驻卡片何时展开',
+      options: { auto: '自动展开', compact: '始终紧凑', orb: '仅球体' },
+    },
+    showHud: { label: '常驻进度卡', hint: '不打开工作区也能看到进度' },
+    showActivity: { label: '活动列表', hint: '工作区右侧的实时记录' },
     fps: { label: '帧率', hint: '渲染帧率上限', options: { '30': '30', '60': '60' } },
     particles: {
       label: '粒子密度',

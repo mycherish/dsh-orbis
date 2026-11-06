@@ -76,6 +76,8 @@ describe('host plugin wiring', () => {
     try {
       apply(host.ctx as never);
       expect([...host.listeners.keys()].sort()).toEqual([
+        'agent/assistant-stream',
+        'agent/disposed',
         'agent/error',
         'agent/status',
         'agent/turn-stopping',
@@ -137,7 +139,7 @@ describe('host plugin wiring', () => {
       expect(body.activeTools).toBe(1);
       const rows = body.events as Array<Record<string, unknown>>;
       expect(rows[0]?.fileKind).toBe('edit');
-      expect(rows[0]?.target).toBe('y.ts');
+      expect(rows[0]?.safeTarget).toBe('y.ts');
       // The Host never forwards the directory or the user name.
       expect(JSON.stringify(body)).not.toContain('/Users');
 
@@ -163,7 +165,7 @@ describe('host plugin wiring', () => {
       onError({ agent: { id: 's1' }, error: { code: 'QUOTA' } });
       body = await read();
       expect(body.agentState).toBe('error');
-      expect((body.events as Array<Record<string, unknown>>)[0]?.name).toBe('QUOTA');
+      expect((body.events as Array<Record<string, unknown>>)[0]?.label).toBe('QUOTA');
     } finally {
       host.restoreConsole();
     }

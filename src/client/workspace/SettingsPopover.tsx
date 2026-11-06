@@ -6,7 +6,7 @@
  * operable from the keyboard without a hand-written focus trap.
  */
 import * as React from 'react';
-import type { OrbitSettings, ParticleDensity } from '../contracts';
+import type { OrbitDisplayMode, OrbitSettings, ParticleDensity } from '../contracts';
 import { LABELS } from './labels';
 
 export interface SettingsPopoverProps {
@@ -18,6 +18,12 @@ function asDensity(value: string): ParticleDensity {
   if (value === 'low') return 'low';
   if (value === 'high') return 'high';
   return 'medium';
+}
+
+function asDisplayMode(value: string): OrbitDisplayMode {
+  if (value === 'compact') return 'compact';
+  if (value === 'orb') return 'orb';
+  return 'auto';
 }
 
 function asReduceMotion(value: string): OrbitSettings['reduceMotion'] {
@@ -40,6 +46,44 @@ export function SettingsPopover({ settings, onChange }: SettingsPopoverProps): R
         <span className="no-settings-title">{LABELS.panel.settingsTitle}</span>
         <span className="no-settings-hint">{LABELS.panel.settingsHint}</span>
       </div>
+
+      <SettingRow label={LABELS.settings.enabled.label} hint={LABELS.settings.enabled.hint}>
+        <Switch
+          checked={settings.enabled}
+          label={LABELS.settings.enabled.label}
+          onChange={(next) => onChange({ enabled: next })}
+        />
+      </SettingRow>
+
+      <SettingRow label={LABELS.settings.displayMode.label} hint={LABELS.settings.displayMode.hint}>
+        <Segmented
+          group="no-display-mode"
+          label={LABELS.settings.displayMode.label}
+          value={settings.displayMode}
+          options={[
+            { value: 'auto', label: LABELS.settings.displayMode.options.auto },
+            { value: 'compact', label: LABELS.settings.displayMode.options.compact },
+            { value: 'orb', label: LABELS.settings.displayMode.options.orb },
+          ]}
+          onChange={(next) => onChange({ displayMode: asDisplayMode(next) })}
+        />
+      </SettingRow>
+
+      <SettingRow label={LABELS.settings.showHud.label} hint={LABELS.settings.showHud.hint}>
+        <Switch
+          checked={settings.showHud}
+          label={LABELS.settings.showHud.label}
+          onChange={(next) => onChange({ showHud: next })}
+        />
+      </SettingRow>
+
+      <SettingRow label={LABELS.settings.showActivity.label} hint={LABELS.settings.showActivity.hint}>
+        <Switch
+          checked={settings.showActivity}
+          label={LABELS.settings.showActivity.label}
+          onChange={(next) => onChange({ showActivity: next })}
+        />
+      </SettingRow>
 
       <SettingRow label={LABELS.settings.fps.label} hint={LABELS.settings.fps.hint}>
         <Segmented

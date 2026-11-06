@@ -1,9 +1,9 @@
 # Neural Orbit bundle patch.
 #
 # The bundle contributes one Host row. That row owns the whole server side:
-# DSH event listeners, the six-state machine, the activity ring buffer and the
+# DSH event listeners, the eleven-state machine, the activity ring buffer and the
 # read-only snapshot/SSE routes. The browser half declared by
-# package.json -> dsh.client renders the floating orb and the workspace panel.
+# package.json -> dsh.client renders the always-on HUD, the floating orb and the workspace panel.
 #
 # Disabling either layer is safe: the Client degrades to a static readout when
 # the routes are missing, and the Host keeps tracking state without a browser.

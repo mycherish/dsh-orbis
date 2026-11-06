@@ -4,7 +4,7 @@
  * 这一层刻意不碰 three 的 Object3D，只产出纯数据，方便单测，也让 index.ts 里的
  * 平滑插值逻辑保持简单：每帧把 current 朝 target 推一点，再把 current 灌进 uniform。
  *
- * 颜色一律来自 contracts.ts 的 `STATE_COLOR`（六状态唯一色源，不在这里另起一套）；
+ * 颜色一律来自 contracts.ts 的 `STATE_COLOR`（十一状态唯一色源，不在这里另起一套）；
  * accent / rim 是它的程序化派生色，用来在 shader 里做层次。
  */
 import { Color } from 'three';
@@ -35,13 +35,21 @@ export interface StateMotion {
 }
 
 /**
- * 六状态的动画差异（task-1 描述）：
- * - idle     蓝，缓慢呼吸；
- * - thinking 紫，能量脉冲明显、频率更快；
- * - executing 青蓝，流体最快、粒子高速流动；
- * - waiting  琥珀，轨道环明显减速（0.14）、粒子几乎静止；
- * - error    红，短促警示闪（flash 包络也只对它生效）；
- * - completed 绿，聚合—扩散—回落（burst 包络）。
+ * 十一状态的动画差异（v2）：
+ * - idle        蓝，缓慢呼吸；
+ * - starting    蓝，比 idle 略活跃：刚接到 `turn/start`，球体还没真正吃力；
+ * - thinking    紫，能量脉冲明显、频率更快；
+ * - preparing   青蓝，介于 thinking 与 executing 之间：正在装配工具调用；
+ * - executing   青蓝，流体最快、粒子高速流动；
+ * - responding  紫，接近 thinking，但流体更快：文字正一串串吐出来；
+ * - waiting     琥珀，轨道环明显减速（0.14）、粒子几乎静止；
+ * - quiet       灰蓝，全场最静：长时间无事件，只留一丝微光证明还活着；
+ * - completed   绿，聚合—扩散—回落（burst 包络）；
+ * - interrupted 琥珀，短暂高频但不刺眼：脉冲比 error 慢一半以上，柔光也压低；
+ * - error       红，短促警示闪（flash 包络也只对它生效）。
+ *
+ * 数值连贯原则：ringSpeed + pulseHz 的组合必须两两不同（单测按此校验签名），
+ * pulseHz 上限只留给 error（2.1），其余高频态都不越过它。
  */
 export const STATE_MOTION: Record<OrbitAgentState, StateMotion> = {
   idle: {
@@ -55,6 +63,18 @@ export const STATE_MOTION: Record<OrbitAgentState, StateMotion> = {
     particleBrightness: 0.55,
     glow: 0.55,
   },
+  starting: {
+    // 刚起步：比 idle 醒了一点，但还谈不上用力。
+    spin: 0.7,
+    pulseAmp: 0.4,
+    pulseHz: 0.34,
+    flow: 0.62,
+    ringSpeed: 0.7,
+    ringOpacity: 0.6,
+    particleSpeed: 0.5,
+    particleBrightness: 0.62,
+    glow: 0.62,
+  },
   thinking: {
     spin: 1.0,
     pulseAmp: 0.85,
@@ -65,6 +85,18 @@ export const STATE_MOTION: Record<OrbitAgentState, StateMotion> = {
     particleSpeed: 0.95,
     particleBrightness: 0.78,
     glow: 0.82,
+  },
+  preparing: {
+    // 装配工具：脉冲靠近 thinking，流体/粒子已朝 executing 抬起来。
+    spin: 1.25,
+    pulseAmp: 0.7,
+    pulseHz: 1.05,
+    flow: 1.75,
+    ringSpeed: 1.55,
+    ringOpacity: 0.8,
+    particleSpeed: 1.35,
+    particleBrightness: 0.9,
+    glow: 0.86,
   },
   executing: {
     spin: 1.55,
@@ -77,6 +109,18 @@ export const STATE_MOTION: Record<OrbitAgentState, StateMotion> = {
     particleBrightness: 1.0,
     glow: 0.9,
   },
+  responding: {
+    // 回话：呼吸像 thinking，但能量丝流得更快（词是一个接一个出来的）。
+    spin: 0.95,
+    pulseAmp: 0.78,
+    pulseHz: 0.7,
+    flow: 1.65,
+    ringSpeed: 0.95,
+    ringOpacity: 0.74,
+    particleSpeed: 1.05,
+    particleBrightness: 0.82,
+    glow: 0.84,
+  },
   waiting: {
     spin: 0.22,
     pulseAmp: 0.4,
@@ -88,16 +132,17 @@ export const STATE_MOTION: Record<OrbitAgentState, StateMotion> = {
     particleBrightness: 0.45,
     glow: 0.48,
   },
-  error: {
-    spin: 0.85,
-    pulseAmp: 0.65,
-    pulseHz: 2.1,
-    flow: 1.7,
-    ringSpeed: 1.15,
-    ringOpacity: 0.62,
-    particleSpeed: 1.05,
-    particleBrightness: 0.88,
-    glow: 1.0,
+  quiet: {
+    // 全场最静：低自转、低柔光、粒子几乎不动，但仍比「完全冻结」有一点呼吸。
+    spin: 0.18,
+    pulseAmp: 0.18,
+    pulseHz: 0.1,
+    flow: 0.16,
+    ringSpeed: 0.1,
+    ringOpacity: 0.32,
+    particleSpeed: 0.1,
+    particleBrightness: 0.34,
+    glow: 0.3,
   },
   completed: {
     spin: 0.8,
@@ -110,9 +155,32 @@ export const STATE_MOTION: Record<OrbitAgentState, StateMotion> = {
     particleBrightness: 1.0,
     glow: 1.0,
   },
+  interrupted: {
+    // 被中断：有一下明显的高频抖动，但柔光收着，绝不比 error 抢眼。
+    spin: 0.7,
+    pulseAmp: 0.55,
+    pulseHz: 1.6,
+    flow: 1.1,
+    ringSpeed: 1.25,
+    ringOpacity: 0.6,
+    particleSpeed: 0.9,
+    particleBrightness: 0.86,
+    glow: 0.7,
+  },
+  error: {
+    spin: 0.85,
+    pulseAmp: 0.65,
+    pulseHz: 2.1,
+    flow: 1.7,
+    ringSpeed: 1.15,
+    ringOpacity: 0.62,
+    particleSpeed: 1.05,
+    particleBrightness: 0.88,
+    glow: 1.0,
+  },
 };
 
-/** 六状态的基准色（唯一色源：contracts.STATE_COLOR），在模块内预计算一次。 */
+/** 十一状态的基准色（唯一色源：contracts.STATE_COLOR），在模块内预计算一次。 */
 export interface StateColors {
   color: Color;
   accent: Color;

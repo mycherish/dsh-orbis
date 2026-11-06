@@ -26,7 +26,7 @@ describe('hub fold', () => {
     expect(snapshot.activeTools).toBe(1);
     expect(snapshot.events).toHaveLength(1);
     expect(snapshot.events[0]?.status).toBe('running');
-    expect(snapshot.events[0]?.target).toBe('a.md');
+    expect(snapshot.events[0]?.safeTarget).toBe('a.md');
 
     hub.handleSessionEvent('s1', toolResult('c1', T0 + 600));
     snapshot = hub.snapshot('s1');
@@ -56,8 +56,8 @@ describe('hub fold', () => {
     const beta = hub.snapshot('beta');
     expect(alpha.events.map((row) => row.id)).toEqual(['a1']);
     expect(beta.events.map((row) => row.id)).toEqual(['b1']);
-    expect(alpha.events[0]?.target).toBe('one.md');
-    expect(beta.events[0]?.target).toBe('two.md');
+    expect(alpha.events[0]?.safeTarget).toBe('one.md');
+    expect(beta.events[0]?.safeTarget).toBe('two.md');
     expect(alpha.sessionId).toBe('alpha');
     expect(beta.sessionId).toBe('beta');
   });
@@ -97,7 +97,7 @@ describe('hub fold', () => {
 
     hub.handleError('s1', 'QUOTA');
     expect(hub.snapshot('s1').agentState).toBe('error');
-    expect(hub.snapshot('s1').events[0]?.name).toBe('QUOTA');
+    expect(hub.snapshot('s1').events[0]?.label).toBe('QUOTA');
     now = T0 + 9000;
     hub.tick();
     expect(hub.snapshot('s1').agentState).toBe('idle');
@@ -151,5 +151,254 @@ describe('hub fold', () => {
     const snapshot = hub.snapshot('s1');
     expect(snapshot.metrics.turns).toBe(1);
     expect(snapshot.events).toEqual([]);
+  });
+});
+
+describe('hub v2: correlation, streams, approvals, quiet', () => {
+  /** A hub whose two clocks are the same injectable value, like production. */
+  function makeHub(start = T0) {
+    let mono = start;
+    let epoch = start;
+    const hub = new OrbitHub({ now: () => epoch, mono: () => mono });
+    return {
+      hub,
+      advance(ms: number) {
+        mono += ms;
+        epoch += ms;
+      },
+      at: () => mono,
+    };
+  }
+
+  it('settles a result that arrives before its call, without an active tool', () => {
+    const { hub } = makeHub();
+    hub.handleSessionEvent('s1', toolResult('c1', T0 + 10));
+    hub.handleSessionEvent('s1', toolCall(1, 'c1', 'read', '{"file_path":"/x/a.md"}', T0));
+    const snapshot = hub.snapshot('s1');
+    expect(snapshot.activeTools).toBe(0);
+    expect(snapshot.events).toHaveLength(1);
+    expect(snapshot.events[0]?.status).toBe('success');
+  });
+
+  it('ignores a duplicated tool/call and a duplicated tool/result', () => {
+    const { hub } = makeHub();
+    hub.handleSessionEvent('s1', toolCall(1, 'c1', 'read', '{}', T0));
+    hub.handleSessionEvent('s1', toolCall(1, 'c1', 'read', '{}', T0 + 1));
+    hub.handleSessionEvent('s1', toolResult('c1', T0 + 2));
+    hub.handleSessionEvent('s1', toolResult('c1', T0 + 3));
+    const snapshot = hub.snapshot('s1');
+    expect(snapshot.events).toHaveLength(1);
+    expect(snapshot.metrics.tools).toBe(1);
+    expect(snapshot.activeTools).toBe(0);
+  });
+
+  it('settles calls out of order by id', () => {
+    const { hub } = makeHub();
+    hub.handleSessionEvent('s1', toolCall(1, 'slow', 'bash', '{}', T0));
+    hub.handleSessionEvent('s1', toolCall(2, 'fast', 'read', '{}', T0 + 1));
+    hub.handleSessionEvent('s1', toolResult('fast', T0 + 2));
+    let snapshot = hub.snapshot('s1');
+    expect(snapshot.activeTools).toBe(1);
+    expect(snapshot.events.find((row) => row.id === 'fast')?.status).toBe('success');
+    expect(snapshot.events.find((row) => row.id === 'slow')?.status).toBe('running');
+
+    hub.handleSessionEvent('s1', toolResult('slow', T0 + 3, true));
+    snapshot = hub.snapshot('s1');
+    expect(snapshot.activeTools).toBe(0);
+    expect(snapshot.events.find((row) => row.id === 'slow')?.status).toBe('error');
+  });
+
+  it('expires an orphaned call instead of pinning the Agent to executing', () => {
+    const clock = makeHub();
+    clock.hub.handleSessionEvent('s1', toolCall(1, 'lost', 'bash', '{}', T0));
+    expect(clock.hub.snapshot('s1').agentState).toBe('executing');
+
+    clock.advance(5_000);
+    clock.hub.tick();
+    expect(clock.hub.snapshot('s1').agentState).toBe('executing');
+
+    clock.advance(10 * 60_000);
+    const expired = new OrbitHub({ now: () => T0, mono: () => T0 + 11 * 60_000 });
+    expect(expired).toBeDefined();
+    clock.hub.tick();
+    const snapshot = clock.hub.snapshot('s1');
+    expect(snapshot.activeTools).toBe(0);
+    expect(snapshot.events[0]?.status).toBe('cancelled');
+  });
+
+  it('adopts the waterfall bridge row when approval/asked arrives', () => {
+    const { hub } = makeHub();
+    hub.handleStatus('s1', 'running');
+    hub.handleApproval('s1', 'bash', 'call-9');
+    hub.handleSessionEvent('s1', {
+      type: 'approval/asked',
+      time: T0 + 5,
+      data: { id: 'ap-1', toolName: 'bash', callId: 'call-9' },
+    });
+    let snapshot = hub.snapshot('s1');
+    expect(snapshot.events).toHaveLength(1);
+    expect(snapshot.events[0]?.id).toBe('ap-1');
+    expect(snapshot.agentState).toBe('waiting');
+    expect(snapshot.metrics.approvals).toBe(1);
+
+    hub.handleSessionEvent('s1', {
+      type: 'approval/decided',
+      time: T0 + 9,
+      data: { id: 'ap-1', outcome: 'rejected' },
+    });
+    snapshot = hub.snapshot('s1');
+    expect(snapshot.events[0]?.status).toBe('error');
+    expect(snapshot.agentState).not.toBe('waiting');
+  });
+
+  it('records an unattached approval as its own row', () => {
+    const { hub } = makeHub();
+    hub.handleSessionEvent('s1', {
+      type: 'approval/asked',
+      time: T0,
+      data: { id: 'ap-2', toolName: 'write' },
+    });
+    expect(hub.snapshot('s1').events).toHaveLength(1);
+    expect(hub.snapshot('s1').agentState).toBe('waiting');
+  });
+
+  it('maps approval outcomes to row statuses', () => {
+    const { hub } = makeHub();
+    const cases: Array<[string, string]> = [
+      ['allowed-once', 'success'],
+      ['rejected', 'error'],
+      ['cancelled', 'cancelled'],
+      ['unavailable', 'error'],
+    ];
+    for (const [outcome, expected] of cases) {
+      const id = `ap-${outcome}`;
+      hub.handleSessionEvent('s1', { type: 'approval/asked', time: T0, data: { id, toolName: 'bash' } });
+      hub.handleSessionEvent('s1', { type: 'approval/decided', time: T0 + 1, data: { id, outcome } });
+      const row = hub.snapshot('s1').events.find((entry) => entry.id === id);
+      expect(row?.status).toBe(expected);
+    }
+  });
+
+  it('turns a stream frame into a live phase', () => {
+    const { hub } = makeHub();
+    hub.handleSessionEvent('s1', { type: 'turn/start', time: T0, data: { turn: 1 } });
+    expect(hub.snapshot('s1').agentState).toBe('starting');
+
+    hub.handleStream('s1', { type: 'start', turn: 1, step: 1 });
+    expect(hub.snapshot('s1').agentState).toBe('thinking');
+
+    hub.handleStream('s1', { type: 'chunk', turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'hi' } });
+    expect(hub.snapshot('s1').agentState).toBe('responding');
+
+    hub.handleStream('s1', {
+      type: 'chunk',
+      turn: 1,
+      step: 1,
+      chunk: { type: 'tool-call-delta', index: 0, id: 'c1', argumentsDelta: '{}' },
+    });
+    expect(hub.snapshot('s1').agentState).toBe('preparing');
+  });
+
+  it('never lets a stale frame from a finished turn resurrect running', () => {
+    const { hub } = makeHub();
+    hub.handleSessionEvent('s1', { type: 'turn/start', time: T0, data: { turn: 3 } });
+    hub.handleSessionEvent('s1', {
+      type: 'turn/end',
+      time: T0 + 10,
+      data: { turn: 3, reason: { kind: 'completed' } },
+    });
+    hub.handleStream('s1', { type: 'start', turn: 2, step: 1 });
+    expect(hub.snapshot('s1').agentState).toBe('completed');
+  });
+
+  it('reports silence and quiet levels on the snapshot', () => {
+    const clock = makeHub();
+    clock.hub.handleSessionEvent('s1', { type: 'step/start', time: T0, data: { turn: 1, step: 1 } });
+    expect(clock.hub.snapshot('s1').agentState).toBe('thinking');
+    expect(clock.hub.snapshot('s1').quietLevel).toBe(0);
+
+    clock.advance(12_000);
+    clock.hub.tick();
+    const snapshot = clock.hub.snapshot('s1');
+    expect(snapshot.agentState).toBe('quiet');
+    expect(snapshot.quietLevel).toBe(1);
+    expect(snapshot.silenceMs).toBeGreaterThanOrEqual(10_000);
+  });
+
+  it('forgets a disposed Session', () => {
+    const { hub } = makeHub();
+    hub.handleSessionEvent('s1', toolCall(1, 'c1', 'read', '{}', T0));
+    expect(hub.sessionIds()).toContain('s1');
+    hub.handleDisposed('s1');
+    expect(hub.sessionIds()).not.toContain('s1');
+    expect(hub.snapshot('s1').sessionId).toBeUndefined();
+  });
+
+  it('settles open tools when the turn ends', () => {
+    const { hub } = makeHub();
+    hub.handleSessionEvent('s1', toolCall(1, 'c1', 'bash', '{}', T0));
+    hub.handleSessionEvent('s1', {
+      type: 'turn/end',
+      time: T0 + 100,
+      data: { turn: 1, reason: { kind: 'interrupted' } },
+    });
+    const snapshot = hub.snapshot('s1');
+    expect(snapshot.activeTools).toBe(0);
+    expect(snapshot.events[0]?.status).toBe('cancelled');
+    expect(snapshot.agentState).toBe('interrupted');
+  });
+
+  it('counts retries once per attempt and keeps the row opaque', () => {
+    const { hub } = makeHub();
+    hub.handleSessionEvent('s1', {
+      type: 'llm/retry',
+      time: T0,
+      data: { retry: 1, turn: 1, step: 1, provider: 'deepseek', mode: 'normal', policyKey: 'k', maxRetries: 3, delayMs: 500, failure: { message: 'boom' } },
+    });
+    hub.handleSessionEvent('s1', {
+      type: 'llm/retry',
+      time: T0 + 1,
+      data: { retry: 1, turn: 1, step: 1, provider: 'deepseek', mode: 'normal', policyKey: 'k', maxRetries: 3, delayMs: 500, failure: { message: 'boom' } },
+    });
+    const snapshot = hub.snapshot('s1');
+    expect(snapshot.metrics.retries).toBe(2);
+    expect(snapshot.events).toHaveLength(1);
+    expect(JSON.stringify(snapshot)).not.toContain('boom');
+  });
+});
+
+describe('hub v2: notification economics', () => {
+  it('advances the version for every stream frame but throttles subscribers', async () => {
+    let mono = T0;
+    const hub = new OrbitHub({ now: () => T0, mono: () => mono, streamNotifyMs: 25 });
+    hub.handleSessionEvent('s1', { type: 'step/start', time: T0, data: { turn: 1, step: 1 } });
+    await Promise.resolve();
+
+    let calls = 0;
+    const off = hub.subscribe(() => {
+      calls += 1;
+    });
+    const before = hub.snapshot('s1').version;
+
+    for (let index = 0; index < 40; index += 1) {
+      mono += 5;
+      hub.handleStream('s1', {
+        type: 'chunk',
+        turn: 1,
+        step: 1,
+        chunk: { type: 'text-delta', index: 0, text: 'x' },
+      });
+    }
+
+    // Every frame is reflected in the state immediately.
+    expect(hub.snapshot('s1').version).toBeGreaterThanOrEqual(before + 40);
+    await Promise.resolve();
+    // …but the 40 frames did not become 40 notifications.
+    expect(calls).toBeLessThanOrEqual(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(calls).toBeGreaterThanOrEqual(1);
+    off();
+    hub.dispose();
   });
 });

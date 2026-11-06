@@ -165,13 +165,15 @@ export function WorkspacePanel(props: WorkspaceViewProps): React.ReactElement {
             <NodeLegend />
           </section>
 
-          <section className="no-stream" aria-label={LABELS.panel.streamTitle}>
-            <div className="no-stream-head">
-              <span className="no-stream-title">{LABELS.panel.streamTitle}</span>
-              <span className="no-stream-count">{loading ? empty : String(rows.length)}</span>
-            </div>
-            <ActivityList rows={rows} now={now} loading={loading} />
-          </section>
+          {settings.showActivity ? (
+            <section className="no-stream" aria-label={LABELS.panel.streamTitle}>
+              <div className="no-stream-head">
+                <span className="no-stream-title">{LABELS.panel.streamTitle}</span>
+                <span className="no-stream-count">{loading ? empty : String(rows.length)}</span>
+              </div>
+              <ActivityList rows={rows} now={now} loading={loading} />
+            </section>
+          ) : null}
         </div>
 
         <footer className="no-footer">

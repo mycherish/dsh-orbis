@@ -95,12 +95,25 @@ const CATEGORY_COLOR: Record<CategoryKey, string> = {
   tool: ORBIT_PALETTE.success,
 };
 
+/*
+ * Ten tool families, five legend colours: each v2 family borrows the family
+ * whose semantics it shares most, and gets its own one-character glyph so the
+ * badge still tells rows apart inside one colour.
+ */
 const TOOL_VISUAL: Record<OrbitToolCategory, { key: CategoryKey; glyph: string }> = {
   shell: { key: 'tool', glyph: '>' },
   'file-read': { key: 'read', glyph: 'R' },
   'file-write': { key: 'write', glyph: 'W' },
   search: { key: 'read', glyph: 'S' },
+  // 跑测试是「工具在做一件有结果的事」，和 shell 同一族。
+  test: { key: 'tool', glyph: 'T' },
   browser: { key: 'edit', glyph: 'B' },
+  // 派活给子代理＝发起一次改动，用 edit 族。
+  subagent: { key: 'edit', glyph: 'C' },
+  // 整理思路是「内部读取」，用 read 族但换字形。
+  reasoning: { key: 'read', glyph: '~' },
+  // 等审批是一次待办的动作确认，用 edit 族。
+  approval: { key: 'edit', glyph: 'K' },
   other: { key: 'tool', glyph: '·' },
 };
 
@@ -166,6 +179,8 @@ const STATUS_COLOR: Record<OrbitActivityStatus, string> = {
   success: ORBIT_PALETTE.success,
   error: ORBIT_PALETTE.error,
   waiting: ORBIT_PALETTE.warning,
+  // 取消不是失败：用次要文字色，让「异常」的红只留给真正的错误。
+  cancelled: ORBIT_PALETTE.labelDim,
 };
 
 export function statusColor(status: OrbitActivityStatus): string {
@@ -238,15 +253,20 @@ const MARK_HEIGHT: Record<OrbitActivityStatus, number> = {
   running: 52,
   waiting: 44,
   success: 28,
+  // 被取消的节点留个矮记号：在场，但不抢戏。
+  cancelled: 20,
   error: 76,
 };
 
 /**
- * Normalise every event timestamp into a 0..100 position on one rail.
+ * Normalise every event start time into a 0..100 position on one rail.
  *
  * The domain is anchored on `metrics.startedAt` when the Host provided it and
  * extended to `updatedAt`, so a quiet tail after the last event stays visible
  * as unfilled rail instead of stretching the ticks.
+ *
+ * v2 rows carry `startedAt` (epoch ms); a run's earlier start is preferred over
+ * its settlement so an erroring slow call still sits where it began.
  */
 export function buildTimeline(
   events: readonly OrbitActivity[],
@@ -258,9 +278,9 @@ export function buildTimeline(
   let minTs = Number.POSITIVE_INFINITY;
   let maxTs = Number.NEGATIVE_INFINITY;
   for (const event of events) {
-    if (!Number.isFinite(event.timestamp)) continue;
-    if (event.timestamp < minTs) minTs = event.timestamp;
-    if (event.timestamp > maxTs) maxTs = event.timestamp;
+    if (!Number.isFinite(event.startedAt)) continue;
+    if (event.startedAt < minTs) minTs = event.startedAt;
+    if (event.startedAt > maxTs) maxTs = event.startedAt;
   }
   if (!Number.isFinite(minTs) || !Number.isFinite(maxTs)) return EMPTY_TIMELINE;
 
@@ -281,12 +301,12 @@ export function buildTimeline(
 
   const marks: TimelineMark[] = events.map((event, index) => ({
     id: event.id,
-    leftPct: positionOf(event.timestamp),
+    leftPct: positionOf(event.startedAt),
     color: statusColor(event.status),
     heightPct: MARK_HEIGHT[event.status],
     side: index % 2 === 0 ? 'up' : 'down',
     active: event.status === 'running' || event.status === 'waiting',
-    label: `${event.name || LABELS.kind.other} · ${LABELS.statusZh[event.status]}`,
+    label: `${event.label || LABELS.kind.other} · ${LABELS.statusZh[event.status]}`,
   }));
 
   return {

@@ -67,18 +67,6 @@ export type CreateOrbRenderer = (options: OrbRendererOptions) => OrbRenderer | n
 /** Transport state of the SSE stream, surfaced in the Workspace header. */
 export type OrbitConnection = 'connecting' | 'open' | 'reconnecting' | 'closed';
 
-/** User-facing animation settings, persisted in localStorage by the shell. */
-export interface OrbitSettings {
-  fps: 30 | 60;
-  particles: ParticleDensity;
-  rings: boolean;
-  glow: boolean;
-  /** `system` follows `prefers-reduced-motion`. */
-  reduceMotion: 'system' | 'on' | 'off';
-  /** Pause the animation loop while the tab is hidden or the window unfocused. */
-  pauseWhenHidden: boolean;
-}
-
 /**
  * Props of the Workspace panel. The shell owns the SSE transport, the settings
  * store and the renderer; the panel only renders them.
@@ -123,15 +111,53 @@ export const ORBIT_PALETTE = {
 /** One colour per Agent state, used by every surface (orb, chip, timeline dot). */
 export const STATE_COLOR: Record<OrbitAgentState, string> = {
   idle: ORBIT_PALETTE.blue,
+  starting: ORBIT_PALETTE.blue,
   thinking: ORBIT_PALETTE.purple,
+  preparing: ORBIT_PALETTE.cyan,
   executing: ORBIT_PALETTE.cyan,
+  responding: ORBIT_PALETTE.purple,
   waiting: ORBIT_PALETTE.warning,
+  quiet: ORBIT_PALETTE.labelDim,
+  interrupted: ORBIT_PALETTE.warning,
   error: ORBIT_PALETTE.error,
   completed: ORBIT_PALETTE.success,
 };
 
-/** Defaults from spec §2.6. */
+/** Display modes for the always-on surface (spec: 自动展开 / 始终紧凑 / 仅球体). */
+export type OrbitDisplayMode = 'auto' | 'compact' | 'orb';
+
+/** User-facing settings, persisted in localStorage by the shell. */
+export interface OrbitSettings {
+  /** The master switch: off means no subscription, no stream, no GPU, no timer. */
+  enabled: boolean;
+  /** How the always-on surface behaves. */
+  displayMode: OrbitDisplayMode;
+  /** Show the always-on progress card at all. */
+  showHud: boolean;
+  /** Show the activity list inside the Workspace. */
+  showActivity: boolean;
+  fps: 30 | 60;
+  particles: ParticleDensity;
+  rings: boolean;
+  glow: boolean;
+  /** `system` follows `prefers-reduced-motion`. */
+  reduceMotion: 'system' | 'on' | 'off';
+  /** Pause the animation loop while the tab is hidden or the window unfocused. */
+  pauseWhenHidden: boolean;
+}
+
+/** Renderer-side settings subset (everything the orb cares about). */
+export type OrbAnimationSettings = Pick<
+  OrbitSettings,
+  'fps' | 'particles' | 'rings' | 'glow' | 'reduceMotion' | 'pauseWhenHidden'
+>;
+
+/** Defaults. The 30 FPS default keeps the always-on card cheap. */
 export const DEFAULT_SETTINGS: OrbitSettings = {
+  enabled: true,
+  displayMode: 'auto',
+  showHud: true,
+  showActivity: true,
   fps: 30,
   particles: 'medium',
   rings: true,
@@ -140,6 +166,9 @@ export const DEFAULT_SETTINGS: OrbitSettings = {
   pauseWhenHidden: true,
 };
 
-/** Workspace layout constants (spec §2.2). */
+/** Workspace layout constants. */
 export const WORKSPACE_SIZE = { width: 780, height: 600 } as const;
 export const LAUNCHER_SIZE = 76 as const;
+
+/** Always-on progress card size bounds (spec: 260–300 × 120–160). */
+export const HUD_SIZE = { min: 260, max: 300, minHeight: 120, maxHeight: 160 } as const;

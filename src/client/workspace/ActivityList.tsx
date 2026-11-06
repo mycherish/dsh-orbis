@@ -79,12 +79,14 @@ function ActivityRow({ row, now }: ActivityRowProps): React.ReactElement {
         {visual.glyph}
       </span>
       <span className="no-row-main">
-        <span className="no-row-name">{row.name.trim() === '' ? LABELS.units.empty : row.name}</span>
+        <span className="no-row-name">
+          {row.label.trim() === '' ? LABELS.units.empty : row.label}
+        </span>
         <span className="no-row-sub">
           <span className="no-row-kind">{visual.kind}</span>
-          {row.target ? (
-            <span className="no-row-target" title={row.target}>
-              {row.target}
+          {row.safeTarget ? (
+            <span className="no-row-target" title={row.safeTarget}>
+              {row.safeTarget}
             </span>
           ) : null}
           {typeof row.duration === 'number' ? (
@@ -98,7 +100,7 @@ function ActivityRow({ row, now }: ActivityRowProps): React.ReactElement {
           style={cssVars({ '--no-status': statusColor(row.status) })}
           aria-hidden="true"
         />
-        <span className="no-row-time">{relativeTime(row.timestamp, now)}</span>
+        <span className="no-row-time">{relativeTime(row.startedAt, now)}</span>
       </span>
     </li>
   );

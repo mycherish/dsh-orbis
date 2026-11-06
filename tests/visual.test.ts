@@ -9,9 +9,11 @@ function snapshot(overrides: Partial<OrbitSnapshot> = {}): OrbitSnapshot {
     sessionId: 's1',
     agentState: 'idle',
     activeTools: 0,
+    silenceMs: 0,
+    quietLevel: 0,
     events: [],
     updatedAt: Date.now(),
-    metrics: { turns: 0, tools: 0, files: 0, startedAt: Date.now() },
+    metrics: { turns: 0, steps: 0, tools: 0, files: 0, approvals: 0, retries: 0, startedAt: Date.now() },
     ...overrides,
   };
 }

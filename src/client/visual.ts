@@ -15,9 +15,14 @@ import type { OrbitAgentState, OrbitSnapshot } from '../shared/protocol';
 /** Base visual energy of each state, before recent-activity boost. */
 const STATE_INTENSITY: Record<OrbitAgentState, number> = {
   idle: 0.08,
+  starting: 0.3,
   thinking: 0.5,
+  preparing: 0.42,
   executing: 0.8,
+  responding: 0.66,
   waiting: 0.35,
+  quiet: 0.16,
+  interrupted: 0.3,
   error: 0.9,
   completed: 0.62,
 };
@@ -42,7 +47,7 @@ export function deriveVisual(
     };
   }
   const now = Date.now();
-  const recent = snapshot.events.filter((event) => now - event.timestamp <= RECENT_WINDOW_MS).length;
+  const recent = snapshot.events.filter((event) => now - event.startedAt <= RECENT_WINDOW_MS).length;
   const boost = Math.min(0.25, recent * 0.03);
   return {
     agentState: snapshot.agentState,

@@ -104,7 +104,7 @@ describe('read-only routes', () => {
     if (frame.type !== 'snapshot') return;
     expect(frame.snapshot.sessionId).toBe('s1');
     expect(frame.snapshot.agentState).toBe('executing');
-    expect(frame.snapshot.events[0]?.target).toBe('plan.md');
+    expect(frame.snapshot.events[0]?.safeTarget).toBe('plan.md');
 
     // A later change is pushed on the same stream, and versions only increase.
     hub.handleSessionEvent('s1', {

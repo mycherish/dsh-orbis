@@ -1,6 +1,6 @@
 {
   "name": "dsh-neural-orbit",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
   "description": "Neural Orbit — a 3D agent status companion and execution visualizer for DeepSeek Harness",
   "type": "module",

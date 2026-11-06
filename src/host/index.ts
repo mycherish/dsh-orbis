@@ -3,7 +3,8 @@
  *
  * Wires DSH events into the `OrbitHub` state fold and exposes the read-only
  * snapshot/SSE routes. It never calls the LLM, never executes a tool, and never
- * persists anything: it only observes events the Harness already emits.
+ * persists anything: it only observes events the Harness already emits, so the
+ * plugin cannot add token cost.
  *
  * Everything registered here is owned by a `ctx.effect`, so unloading the
  * plugin removes the listeners, the ticker, the routes and every open stream.
@@ -12,20 +13,62 @@ import type { OrbitHub } from './hub';
 import { OrbitHub as Hub } from './hub';
 import type { SessionEventLike, SessionLike } from './hub';
 import { registerOrbitRoutes, type RouteHandle, type WebServerLike } from './routes';
+import { ORBIT_PROTOCOL_VERSION } from '../shared/protocol';
 
-/** How often time-boxed states are re-evaluated. */
+/** How often held states, silence buckets and stale calls are re-evaluated. */
 const TICK_MS = 250;
+
+/** A session id may arrive as a bare value or as an object carrying `id`. */
+interface AgentLike {
+  id: unknown;
+  session?: { id: unknown };
+}
+
+interface ListenerOptions {
+  /** Listen across every Agent scope, not only this plugin's own. */
+  global?: boolean;
+}
 
 /** Structural view of the Cordis Host context this plugin depends on. */
 interface HostContextLike {
-  on(name: 'session/event', listener: (session: SessionLike, event: SessionEventLike) => void): () => void;
-  on(name: 'agent/status', listener: (payload: { agent: { id: unknown }; status: 'idle' | 'running' }) => void): () => void;
-  on(name: 'agent/turn-stopping', listener: (payload: { agent: { id: unknown }; turn?: number }) => void): () => void;
-  on(name: 'agent/error', listener: (payload: { agent: { id: unknown }; error?: unknown }) => void): () => void;
-  on(name: 'approval/request', listener: (
-    request: { agent: { id: unknown }; toolName?: string },
-    next: () => Promise<unknown>,
-  ) => Promise<unknown>): () => void;
+  on(
+    name: 'session/event',
+    listener: (session: SessionLike, event: SessionEventLike) => void,
+    options?: ListenerOptions,
+  ): () => void;
+  on(
+    name: 'agent/status',
+    listener: (payload: { agent: AgentLike; status: 'idle' | 'running' }) => void,
+    options?: ListenerOptions,
+  ): () => void;
+  on(
+    name: 'agent/turn-stopping',
+    listener: (payload: { agent: AgentLike; turn?: number }) => void,
+    options?: ListenerOptions,
+  ): () => void;
+  on(
+    name: 'agent/error',
+    listener: (payload: { agent: AgentLike; error?: unknown }) => void,
+    options?: ListenerOptions,
+  ): () => void;
+  on(
+    name: 'agent/disposed',
+    listener: (payload: { agent: AgentLike }) => void,
+    options?: ListenerOptions,
+  ): () => void;
+  on(
+    name: 'agent/assistant-stream',
+    listener: (payload: { agent: AgentLike; frame: unknown }) => void,
+    options?: ListenerOptions,
+  ): () => void;
+  on(
+    name: 'approval/request',
+    listener: (
+      request: { agent: AgentLike; toolName?: string; callId?: string },
+      next: () => Promise<unknown>,
+    ) => Promise<unknown>,
+    options?: ListenerOptions,
+  ): () => void;
   effect(callback: () => (() => void) | void, label?: string): () => void;
   get(name: string): unknown;
 }
@@ -38,6 +81,14 @@ function idOf(value: unknown): string | undefined {
     if (typeof id === 'string' && id !== '') return id;
   }
   return undefined;
+}
+
+/** Resolve the Session an Agent-scoped payload belongs to. */
+function sessionIdOf(agent: AgentLike | undefined): string | undefined {
+  if (agent === undefined || agent === null) return undefined;
+  const direct = idOf(agent.session);
+  if (direct !== undefined) return direct;
+  return idOf(agent);
 }
 
 /** Best-effort failure code from an opaque DSH error object. */
@@ -62,6 +113,11 @@ export function apply(ctx: HostContextLike): void {
     console.warn(`[neural-orbit] ${label} failed: ${message}`);
   };
 
+  // Cross-Agent coverage: the built-in controllers listen with `{ global: true }`
+  // for the same reason — a plugin mounted at the profile root must still see
+  // events of Agents it did not create (sub-agents, teammates).
+  const GLOBAL: ListenerOptions = { global: true };
+
   ctx.effect(() => ctx.on('session/event', (session, event) => {
     try {
       const sessionId = idOf(session);
@@ -70,48 +126,71 @@ export function apply(ctx: HostContextLike): void {
     } catch (error) {
       report('session event normalization', error);
     }
-  }), 'neural-orbit: session events');
+  }, GLOBAL), 'neural-orbit: session events');
 
   ctx.effect(() => ctx.on('agent/status', (payload) => {
     try {
-      const sessionId = idOf(payload?.agent);
+      const sessionId = sessionIdOf(payload?.agent);
       if (sessionId === undefined) return;
       hub.handleStatus(sessionId, payload.status);
     } catch (error) {
       report('agent status', error);
     }
-  }), 'neural-orbit: agent status');
+  }, GLOBAL), 'neural-orbit: agent status');
 
   ctx.effect(() => ctx.on('agent/turn-stopping', (payload) => {
     try {
-      const sessionId = idOf(payload?.agent);
+      const sessionId = sessionIdOf(payload?.agent);
       if (sessionId === undefined) return;
       hub.handleTurnStopping(sessionId);
     } catch (error) {
       report('turn stopping', error);
     }
-  }), 'neural-orbit: turn stopping');
+  }, GLOBAL), 'neural-orbit: turn stopping');
 
   ctx.effect(() => ctx.on('agent/error', (payload) => {
     try {
-      const sessionId = idOf(payload?.agent);
+      const sessionId = sessionIdOf(payload?.agent);
       if (sessionId === undefined) return;
       hub.handleError(sessionId, codeOf(payload.error));
     } catch (error) {
       report('agent error', error);
     }
-  }), 'neural-orbit: agent error');
+  }, GLOBAL), 'neural-orbit: agent error');
+
+  ctx.effect(() => ctx.on('agent/disposed', (payload) => {
+    try {
+      const sessionId = sessionIdOf(payload?.agent);
+      if (sessionId === undefined) return;
+      hub.handleDisposed(sessionId);
+    } catch (error) {
+      report('agent disposed', error);
+    }
+  }, GLOBAL), 'neural-orbit: agent disposed');
+
+  // Transient model frames: the only real-time signal available, and the only
+  // place the plugin can see "thinking" versus "answering" while it happens.
+  // Only the frame's type tags are read (see `host/stream.ts`).
+  ctx.effect(() => ctx.on('agent/assistant-stream', (payload) => {
+    try {
+      const sessionId = sessionIdOf(payload?.agent);
+      if (sessionId === undefined) return;
+      hub.handleStream(sessionId, payload.frame);
+    } catch (error) {
+      report('assistant stream', error);
+    }
+  }, GLOBAL), 'neural-orbit: assistant stream');
 
   // Waterfall: observe the ask, then always delegate the decision.
   ctx.effect(() => ctx.on('approval/request', (request, next) => {
     try {
-      const sessionId = idOf(request?.agent);
-      if (sessionId !== undefined) hub.handleApproval(sessionId, request.toolName);
+      const sessionId = sessionIdOf(request?.agent);
+      if (sessionId !== undefined) hub.handleApproval(sessionId, request.toolName, request.callId);
     } catch (error) {
       report('approval observation', error);
     }
     return next();
-  }), 'neural-orbit: approvals');
+  }, GLOBAL), 'neural-orbit: approvals');
 
   /**
    * The web carrier may activate after this row. Registration is retried from
@@ -164,7 +243,9 @@ export function apply(ctx: HostContextLike): void {
 export function describe(): Record<string, unknown> {
   return {
     name,
+    protocol: ORBIT_PROTOCOL_VERSION,
     routes: ['/api/neural-orbit/state', '/api/neural-orbit/events'],
     persistence: 'none',
+    llmCalls: 0,
   };
 }

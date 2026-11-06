@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Neural Orbit">
+  <defs>
+    <radialGradient id="noBg" cx="50%" cy="42%" r="72%">
+      <stop offset="0%" stop-color="#152242"/>
+      <stop offset="62%" stop-color="#0b1430"/>
+      <stop offset="100%" stop-color="#070B18"/>
+    </radialGradient>
+    <radialGradient id="noCore" cx="50%" cy="46%" r="52%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="1"/>
+      <stop offset="26%" stop-color="#9fd8ff" stop-opacity="0.95"/>
+      <stop offset="58%" stop-color="#42A5FF" stop-opacity="0.72"/>
+      <stop offset="100%" stop-color="#9875FF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="noRingA" x1="8%" y1="92%" x2="92%" y2="8%">
+      <stop offset="0%" stop-color="#48E5FF"/>
+      <stop offset="52%" stop-color="#42A5FF"/>
+      <stop offset="100%" stop-color="#9875FF"/>
+    </linearGradient>
+    <linearGradient id="noRingB" x1="0%" y1="40%" x2="100%" y2="60%">
+      <stop offset="0%" stop-color="#9875FF" stop-opacity="0.15"/>
+      <stop offset="45%" stop-color="#48E5FF" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#50D9A0" stop-opacity="0.15"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="256" height="256" rx="56" fill="#070B18"/>
+  <rect width="256" height="256" rx="56" fill="url(#noBg)" opacity="0.9"/>
+
+  <!-- starfield -->
+  <circle cx="52" cy="58" r="1.6" fill="#93A4C4" opacity="0.7"/>
+  <circle cx="206" cy="74" r="1.2" fill="#93A4C4" opacity="0.55"/>
+  <circle cx="196" cy="196" r="1.5" fill="#93A4C4" opacity="0.5"/>
+  <circle cx="64" cy="192" r="1.1" fill="#93A4C4" opacity="0.45"/>
+  <circle cx="128" cy="30" r="1" fill="#E8EEFB" opacity="0.6"/>
+
+  <!-- orbital rings -->
+  <ellipse cx="128" cy="128" rx="96" ry="34" fill="none" stroke="url(#noRingA)" stroke-width="2.4" opacity="0.85" transform="rotate(-22 128 128)"/>
+  <ellipse cx="128" cy="128" rx="82" ry="60" fill="none" stroke="url(#noRingB)" stroke-width="1.8" opacity="0.75" transform="rotate(28 128 128)"/>
+  <ellipse cx="128" cy="128" rx="106" ry="70" fill="none" stroke="#42A5FF" stroke-width="1" opacity="0.22" transform="rotate(-6 128 128)"/>
+
+  <!-- core orb -->
+  <circle cx="128" cy="128" r="58" fill="url(#noCore)" opacity="0.55"/>
+  <circle cx="128" cy="128" r="34" fill="#0d1730"/>
+  <circle cx="128" cy="128" r="34" fill="url(#noCore)" opacity="0.85"/>
+  <circle cx="128" cy="128" r="21" fill="#48E5FF" opacity="0.55"/>
+  <circle cx="128" cy="128" r="12" fill="#EAF6FF"/>
+
+  <!-- orbit nodes -->
+  <circle cx="212" cy="104" r="5" fill="#48E5FF"/>
+  <circle cx="44" cy="150" r="4" fill="#9875FF"/>
+  <circle cx="163" cy="196" r="3.2" fill="#50D9A0" opacity="0.9"/>
+  <path d="M212 104 l-30 8" stroke="#48E5FF" stroke-width="1.2" opacity="0.45" stroke-linecap="round"/>
+  <path d="M44 150 l26 -14" stroke="#9875FF" stroke-width="1.2" opacity="0.45" stroke-linecap="round"/>
+</svg>

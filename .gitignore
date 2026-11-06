@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# macOS
+.DS_Store
+
+# Logs and local scratch
+*.log
+tmp/
+.tmp/
+
+# Local environment
+.env
+.env.local

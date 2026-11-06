@@ -10,11 +10,11 @@ import type {
   OrbitActivity,
   OrbitActivityStatus,
   OrbitAgentState,
-  OrbitFileKind,
   OrbitToolCategory,
 } from '../../shared/protocol';
 import type { OrbitConnection } from '../contracts';
 import { ORBIT_PALETTE, STATE_COLOR } from '../contracts';
+import { CATEGORY_LABEL, SENSITIVE_TARGET_LABEL } from '../../shared/task-context-types';
 import { LABELS } from './labels';
 
 export function clamp01(value: number): number {
@@ -96,31 +96,32 @@ const CATEGORY_COLOR: Record<CategoryKey, string> = {
 };
 
 /*
- * Ten tool families, five legend colours: each v2 family borrows the family
- * whose semantics it shares most, and gets its own one-character glyph so the
- * badge still tells rows apart inside one colour.
+ * Thirteen v2.0 tool categories, five legend colours: each category borrows the
+ * family whose semantics it shares most, and gets its own one-character glyph so
+ * the badge still tells rows apart inside one colour.
  */
 const TOOL_VISUAL: Record<OrbitToolCategory, { key: CategoryKey; glyph: string }> = {
-  shell: { key: 'tool', glyph: '>' },
-  'file-read': { key: 'read', glyph: 'R' },
-  'file-write': { key: 'write', glyph: 'W' },
+  /* 读取族：都是在「看」，不改变任何东西。 */
+  file_read: { key: 'read', glyph: 'R' },
   search: { key: 'read', glyph: 'S' },
-  // 跑测试是「工具在做一件有结果的事」，和 shell 同一族。
-  test: { key: 'tool', glyph: 'T' },
-  browser: { key: 'edit', glyph: 'B' },
-  // 派活给子代理＝发起一次改动，用 edit 族。
-  subagent: { key: 'edit', glyph: 'C' },
   // 整理思路是「内部读取」，用 read 族但换字形。
   reasoning: { key: 'read', glyph: '~' },
-  // 等审批是一次待办的动作确认，用 edit 族。
-  approval: { key: 'edit', glyph: 'K' },
-  other: { key: 'tool', glyph: '·' },
-};
-
-const FILE_VISUAL: Record<OrbitFileKind, { key: CategoryKey; glyph: string }> = {
-  read: { key: 'read', glyph: 'R' },
-  write: { key: 'write', glyph: 'W' },
-  edit: { key: 'edit', glyph: 'E' },
+  // 组织答复是输出，但输出的是文字结论而非文件，仍归 read 族。
+  response: { key: 'read', glyph: 'A' },
+  /* 写入族：会落地产出。 */
+  file_write: { key: 'write', glyph: 'W' },
+  build: { key: 'write', glyph: 'B' },
+  // 跑测试是「一件有结果的事」，和构建同族。
+  test: { key: 'write', glyph: 'T' },
+  /* 编辑族：驱动外部动作 / 等待外部确认。 */
+  command: { key: 'edit', glyph: '>' },
+  api: { key: 'edit', glyph: '@' },
+  database: { key: 'edit', glyph: 'D' },
+  inspection: { key: 'edit', glyph: '?' },
+  // 等审批是一次待办的动作确认。
+  approval: { key: 'edit', glyph: '!' },
+  /* 兜底：Host 只说「有其他动作在发生」。 */
+  unknown: { key: 'tool', glyph: '·' },
 };
 
 export interface ActivityVisual {
@@ -131,56 +132,46 @@ export interface ActivityVisual {
   color: string;
   /** Short kind word for the row's second line. */
   kind: string;
+  /**
+   * Second-line target text. Always empty for a redacted row: the masked file
+   * has no name to show, so the sentence lives in `kind` instead.
+   */
+  target?: string;
 }
 
-/** Classify one activity row into badge glyph, colour and kind word. */
+/** Chinese category word, straight from the shared contract table. */
+export function categoryVisualLabel(category: OrbitToolCategory): string {
+  return CATEGORY_LABEL[category] ?? CATEGORY_LABEL.unknown;
+}
+
+/* A failed row keeps its family word but takes the error colour and spike. */
+const FAILED_VISUAL: { key: CategoryKey; glyph: string } = { key: 'error', glyph: '!' };
+
+/** Classify one activity row into badge glyph, colour, kind word and target. */
 export function activityVisual(activity: OrbitActivity): ActivityVisual {
-  if (activity.status === 'error') {
-    return {
-      key: 'error',
-      glyph: '!',
-      color: CATEGORY_COLOR.error,
-      kind: categoryKindWord(activity),
-    };
-  }
-  const base = resolveBaseVisual(activity);
+  /* Redaction is a text rule, failure a colour rule — they never fight. */
+  const redacted = activity.redacted === true;
+  const base =
+    activity.status === 'failed'
+      ? FAILED_VISUAL
+      : TOOL_VISUAL[activity.category] ?? TOOL_VISUAL.unknown;
   return {
     key: base.key,
     glyph: base.glyph,
     color: CATEGORY_COLOR[base.key],
-    kind: categoryKindWord(activity),
+    kind: redacted ? SENSITIVE_TARGET_LABEL : categoryVisualLabel(activity.category),
+    target: redacted ? undefined : activity.safeTarget,
   };
-}
-
-function resolveBaseVisual(activity: OrbitActivity): { key: CategoryKey; glyph: string } {
-  if (activity.type === 'tool') {
-    return activity.category ? TOOL_VISUAL[activity.category] : TOOL_VISUAL.other;
-  }
-  if (activity.type === 'file') {
-    return activity.fileKind ? FILE_VISUAL[activity.fileKind] : { key: 'tool', glyph: 'F' };
-  }
-  if (activity.type === 'approval') return { key: 'edit', glyph: '?' };
-  return { key: 'tool', glyph: 'A' };
-}
-
-function categoryKindWord(activity: OrbitActivity): string {
-  if (activity.type === 'tool') {
-    return activity.category ? LABELS.toolKind[activity.category] : LABELS.kind.other;
-  }
-  if (activity.type === 'file') {
-    return activity.fileKind ? LABELS.fileKind[activity.fileKind] : LABELS.kind.file;
-  }
-  if (activity.type === 'approval') return LABELS.kind.approval;
-  return LABELS.kind.agent;
 }
 
 const STATUS_COLOR: Record<OrbitActivityStatus, string> = {
   running: ORBIT_PALETTE.cyan,
   success: ORBIT_PALETTE.success,
-  error: ORBIT_PALETTE.error,
-  waiting: ORBIT_PALETTE.warning,
-  // 取消不是失败：用次要文字色，让「异常」的红只留给真正的错误。
+  failed: ORBIT_PALETTE.error,
+  // 取消不是失败：用次要文字色，让「异常」的红只留给真正的失败。
   cancelled: ORBIT_PALETTE.labelDim,
+  // 只知道「开始过」的行同样退到次要色，不做任何猜测。
+  unknown: ORBIT_PALETTE.labelDim,
 };
 
 export function statusColor(status: OrbitActivityStatus): string {
@@ -251,12 +242,19 @@ export const EMPTY_TIMELINE: TimelineModel = {
 
 const MARK_HEIGHT: Record<OrbitActivityStatus, number> = {
   running: 52,
-  waiting: 44,
   success: 28,
   // 被取消的节点留个矮记号：在场，但不抢戏。
   cancelled: 20,
-  error: 76,
+  // 只知道「开始过」的行比取消还要矮一点：连结局都不确定。
+  unknown: 18,
+  failed: 76,
 };
+
+/** The row's own safe name, or the category word when the Host sent none. */
+export function rowLabel(activity: OrbitActivity): string {
+  const label = typeof activity.label === 'string' ? activity.label.trim() : '';
+  return label === '' ? categoryVisualLabel(activity.category) : label;
+}
 
 /**
  * Normalise every event start time into a 0..100 position on one rail.
@@ -305,8 +303,8 @@ export function buildTimeline(
     color: statusColor(event.status),
     heightPct: MARK_HEIGHT[event.status],
     side: index % 2 === 0 ? 'up' : 'down',
-    active: event.status === 'running' || event.status === 'waiting',
-    label: `${event.label || LABELS.kind.other} · ${LABELS.statusZh[event.status]}`,
+    active: event.status === 'running',
+    label: `${rowLabel(event)} · ${LABELS.statusZh[event.status]}`,
   }));
 
   return {

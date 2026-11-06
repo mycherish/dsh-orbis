@@ -47,6 +47,44 @@ export function SettingsPopover({ settings, onChange }: SettingsPopoverProps): R
         <span className="no-settings-hint">{LABELS.panel.settingsHint}</span>
       </div>
 
+      <SettingRow
+        label={LABELS.settings.showRecentActivity.label}
+        hint={LABELS.settings.showRecentActivity.hint}
+      >
+        <Switch
+          checked={settings.showRecentActivity}
+          label={LABELS.settings.showRecentActivity.label}
+          onChange={(next) => onChange({ showRecentActivity: next })}
+        />
+      </SettingRow>
+
+      <SettingRow
+        label={LABELS.settings.showSilenceAlert.label}
+        hint={LABELS.settings.showSilenceAlert.hint}
+      >
+        <Switch
+          checked={settings.showSilenceAlert}
+          label={LABELS.settings.showSilenceAlert.label}
+          onChange={(next) => onChange({ showSilenceAlert: next })}
+        />
+      </SettingRow>
+
+      <SettingRow label={LABELS.settings.showWorkspace.label} hint={LABELS.settings.showWorkspace.hint}>
+        <Switch
+          checked={settings.showWorkspace}
+          label={LABELS.settings.showWorkspace.label}
+          onChange={(next) => onChange({ showWorkspace: next })}
+        />
+      </SettingRow>
+
+      <SettingRow label={LABELS.settings.animate.label} hint={LABELS.settings.animate.hint}>
+        <Switch
+          checked={settings.animate}
+          label={LABELS.settings.animate.label}
+          onChange={(next) => onChange({ animate: next })}
+        />
+      </SettingRow>
+
       <SettingRow label={LABELS.settings.enabled.label} hint={LABELS.settings.enabled.hint}>
         <Switch
           checked={settings.enabled}

@@ -123,19 +123,27 @@ export const STATE_COLOR: Record<OrbitAgentState, string> = {
   completed: ORBIT_PALETTE.success,
 };
 
-/** Display modes for the always-on surface (spec: 自动展开 / 始终紧凑 / 仅球体). */
+/** Display modes for the always-on surface (spec §8: 自动展开 / 始终紧凑 / 仅能量球). */
 export type OrbitDisplayMode = 'auto' | 'compact' | 'orb';
 
 /** User-facing settings, persisted in localStorage by the shell. */
 export interface OrbitSettings {
-  /** The master switch: off means no subscription, no stream, no GPU, no timer. */
+  /** The master switch: off means no listener, no stream, no GPU, no timer. */
   enabled: boolean;
   /** How the always-on surface behaves. */
   displayMode: OrbitDisplayMode;
-  /** Show the always-on progress card at all. */
+  /** Show the always-on HUD at all. */
   showHud: boolean;
   /** Show the activity list inside the Workspace. */
   showActivity: boolean;
+  /** Show the "最近活动" block inside the HUD. */
+  showRecentActivity: boolean;
+  /** Show the silence reminder when nothing has happened for a while. */
+  showSilenceAlert: boolean;
+  /** Allow opening the detailed Workspace panel. */
+  showWorkspace: boolean;
+  /** Keep the 3D orb animating (off = static sphere, zero GPU frames). */
+  animate: boolean;
   fps: 30 | 60;
   particles: ParticleDensity;
   rings: boolean;
@@ -149,7 +157,7 @@ export interface OrbitSettings {
 /** Renderer-side settings subset (everything the orb cares about). */
 export type OrbAnimationSettings = Pick<
   OrbitSettings,
-  'fps' | 'particles' | 'rings' | 'glow' | 'reduceMotion' | 'pauseWhenHidden'
+  'fps' | 'particles' | 'rings' | 'glow' | 'reduceMotion' | 'pauseWhenHidden' | 'animate'
 >;
 
 /** Defaults. The 30 FPS default keeps the always-on card cheap. */
@@ -158,6 +166,10 @@ export const DEFAULT_SETTINGS: OrbitSettings = {
   displayMode: 'auto',
   showHud: true,
   showActivity: true,
+  showRecentActivity: true,
+  showSilenceAlert: true,
+  showWorkspace: true,
+  animate: true,
   fps: 30,
   particles: 'medium',
   rings: true,
@@ -170,5 +182,5 @@ export const DEFAULT_SETTINGS: OrbitSettings = {
 export const WORKSPACE_SIZE = { width: 780, height: 600 } as const;
 export const LAUNCHER_SIZE = 76 as const;
 
-/** Always-on progress card size bounds (spec: 260–300 × 120–160). */
-export const HUD_SIZE = { min: 260, max: 300, minHeight: 120, maxHeight: 160 } as const;
+/** Always-on HUD geometry (spec §5.1: width 450–480, height content-driven). */
+export const HUD_SIZE = { width: 470, minWidth: 420, maxWidth: 480, top: 118, side: 24 } as const;

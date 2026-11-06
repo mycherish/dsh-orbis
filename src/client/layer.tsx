@@ -1,18 +1,18 @@
 /**
- * The overlay root: one entry in `shell.overlay` that owns the always-on card,
- * the launcher, the workspace, both orb renderers, the SSE transport and every
- * lifecycle rule (master switch, pause when hidden, release on close, follow the
- * displayed Session).
+ * The overlay root: one entry in `shell.overlay` that owns the always-on HUD,
+ * the launcher, the workspace, all three orb canvases, the SSE transport and
+ * every lifecycle rule (master switch, pause when hidden, release on close,
+ * follow the displayed Session).
  *
  * The master switch (`settings.enabled`) is a real switch, not a visual one:
  * while it is off there is no transport, no polling, no renderer and no timer —
  * the overlay renders one small affordance that turns it back on.
  */
 import * as React from 'react';
-import { LAUNCHER_SIZE, ORBIT_PALETTE, type OrbQuality, type OrbRenderer, type OrbVisualState } from './contracts';
+import { LAUNCHER_SIZE, ORBIT_PALETTE, type OrbQuality, type OrbRenderer, type OrbitSettings, type OrbVisualState } from './contracts';
 import { createOrbRenderer } from './orb';
 import { Launcher, LauncherRestore } from './launcher';
-import { ProgressCard, hudDodgeOffset } from './hud';
+import { NeuralOrbitHUD } from './hud';
 import { WorkspaceView } from './workspace';
 import { useOrbitStore } from './store';
 import { startTransport, type Transport } from './transport';
@@ -32,6 +32,17 @@ export interface OrbitLayerProps {
 }
 
 const FPS_SAMPLE_MS = 1000;
+
+/**
+ * Is the always-on panel allowed to draw right now?
+ *
+ * Pure, and used twice on purpose: once to decide the HUD ball renderer's
+ * `active` flag and once for the JSX, so the canvas can never be animating
+ * while the panel itself is hidden (or vice versa).
+ */
+function hudVisibleFor(settings: OrbitSettings, visible: boolean, open: boolean): boolean {
+  return settings.showHud && settings.displayMode !== 'orb' && visible && !open;
+}
 
 /** Remember the last Session the main column displayed. */
 let lastSessionId: string | undefined;
@@ -123,12 +134,14 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
   const visible = useOrbitStore((state) => state.visible);
   const position = useOrbitStore((state) => state.position);
   const hudCollapsed = useOrbitStore((state) => state.hudCollapsed);
+  const hudPinned = useOrbitStore((state) => state.hudPinned);
   const setSnapshot = useOrbitStore((state) => state.setSnapshot);
   const setConnection = useOrbitStore((state) => state.setConnection);
   const setOpen = useOrbitStore((state) => state.setOpen);
   const setVisible = useOrbitStore((state) => state.setVisible);
   const setPosition = useOrbitStore((state) => state.setPosition);
   const setHudCollapsed = useOrbitStore((state) => state.setHudCollapsed);
+  const setHudPinned = useOrbitStore((state) => state.setHudPinned);
   const patchSettings = useOrbitStore((state) => state.patchSettings);
   const setFps = useOrbitStore((state) => state.setFps);
 
@@ -207,6 +220,7 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
 
   const [launcherCanvas, setLauncherCanvas] = React.useState<HTMLCanvasElement | null>(null);
   const [workspaceCanvas, setWorkspaceCanvas] = React.useState<HTMLCanvasElement | null>(null);
+  const [hudCanvas, setHudCanvas] = React.useState<HTMLCanvasElement | null>(null);
 
   // The launcher rests while the workspace is open: two live contexts at once
   // would spend GPU on something the panel already covers. With the master
@@ -214,6 +228,14 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
   const launcherActive = enabled && visible && !open && !suspended;
   const launcher = useOrbRenderer(launcherCanvas, visual, quality, launcherActive);
   const workspace = useOrbRenderer(workspaceCanvas, visual, quality, enabled && open && !suspended);
+
+  /*
+   * The HUD's own ball is drawn by this same renderer factory (never a second
+   * WebGL implementation): the panel only owns a `<canvas>` and hands it up.
+   * Closed HUD → `null` → the renderer is disposed and the GPU memory released.
+   */
+  const hudActive = enabled && hudVisibleFor(settings, visible, open) && !suspended;
+  const hud = useOrbRenderer(hudCanvas, visual, quality, hudActive);
 
   React.useEffect(() => {
     if (!enabled) {
@@ -243,9 +265,14 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
     setWorkspaceCanvas(canvas);
   }, []);
 
-  // ---- always-on card wiring ---------------------------------------------
+  const bindHudCanvas = React.useCallback((canvas: HTMLCanvasElement | null) => {
+    setHudCanvas(canvas);
+  }, []);
+
+  // ---- always-on HUD wiring ----------------------------------------------
   const collapseHud = React.useCallback(() => setHudCollapsed(true), [setHudCollapsed]);
   const expandHud = React.useCallback(() => setHudCollapsed(false), [setHudCollapsed]);
+  const pinHud = React.useCallback((next: boolean) => setHudPinned(next), [setHudPinned]);
   const openWorkspace = React.useCallback(() => setOpen(true), [setOpen]);
 
   // ---- master switch off: one affordance, and nothing else ---------------
@@ -268,11 +295,8 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
 
   const agentState = snapshot?.agentState ?? 'idle';
   const activeTools = snapshot?.activeTools ?? 0;
-  // `orb` mode is the "球体 only" choice; `showHud: false` hides the card too.
-  const hudVisible = settings.showHud && settings.displayMode !== 'orb' && visible && !open;
-  // The orb is draggable, so the card reserves its corner: when the two boxes
-  // would overlap, the card steps up instead of drawing over the orb.
-  const hudBottom = hudDodgeOffset(position, hudCollapsed);
+  // `orb` mode is the "能量球 only" choice; `showHud: false` hides the panel too.
+  const hudVisible = hudVisibleFor(settings, visible, open);
 
   return (
     <React.Fragment>
@@ -310,16 +334,19 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
         />
       )}
       {hudVisible ? (
-        <ProgressCard
+        <NeuralOrbitHUD
           snapshot={snapshot}
           connection={connection}
           settings={settings}
           collapsed={hudCollapsed}
+          pinned={hudPinned}
           reduceMotion={quality.reduceMotion}
+          orbUnavailable={hud.failed}
+          bindOrbCanvas={bindHudCanvas}
           onCollapse={collapseHud}
           onExpand={expandHud}
           onOpenWorkspace={openWorkspace}
-          bottomOffset={hudBottom}
+          onPin={pinHud}
         />
       ) : null}
       <span hidden aria-hidden="true" data-neural-orbit-launcher-size={LAUNCHER_SIZE} />

@@ -26,16 +26,16 @@ describe('call correlation', () => {
     // `b` finishes first: correlation is by id, not by FIFO.
     expect(calls.settle('b', 'success')?.callId).toBe('b');
     expect(calls.running().map((call) => call.callId)).toEqual(['a']);
-    expect(calls.settle('a', 'error')?.callId).toBe('a');
+    expect(calls.settle('a', 'failed')?.callId).toBe('a');
     expect(calls.size).toBe(0);
   });
 
   it('remembers a result that arrives before its call', () => {
     const calls = new CallRegistry();
-    expect(calls.settle('c9', 'error')).toBeUndefined();
+    expect(calls.settle('c9', 'failed')).toBeUndefined();
 
     const outcome = calls.start(meta('c9'), 5);
-    expect(outcome).toEqual({ kind: 'pre-settled', status: 'error' });
+    expect(outcome).toEqual({ kind: 'pre-settled', status: 'failed' });
     expect(calls.size).toBe(0);
   });
 

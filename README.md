@@ -2,7 +2,7 @@
 
 3D AI Agent 状态伴侣 + Always-on 工作进度 HUD（DeepSeek Harness Web 插件）。
 
-**不用打开任何面板**：Agent 一开始工作，右下角就浮出一张玻璃进度卡，实时告诉你它此刻在思考、在准备工具、在执行、在回复、等你确认，还是已经静默了 34 秒。想要细节时再点开：一颗活的 3D 能量球 + 一整块磨砂玻璃工作空间（能量球、活动记录、执行时间线、统计）。
+**不用打开任何面板**：Agent 一开始工作，对话区右侧就浮出一块 470px 宽的玻璃面板，实时告诉你**当前任务是什么、进行到哪个阶段、最近完成了哪 5 件事、正在做什么、以及是不是已经安静了 45 秒**。想要细节时再点开：一颗活的 3D 能量球 + 一整块磨砂玻璃工作空间（能量球、活动记录、执行时间线、统计）。
 
 - 所有状态来自 **DSH 真实事件**，不调用 LLM，不消耗 Token，不读取模型推理内容。
 - 只读、只观察：不执行工具、不写会话、不落库。
@@ -14,9 +14,13 @@
 
 ![十一状态能量球](docs/orb-states-v2.png)
 
-Always-on HUD：执行中 / 回复中 / 静默中，以及用户手动收起后的紧凑胶囊：
+Always-on HUD（470px 玻璃面板：任务标题 / 阶段 / 运行时长 / 纯事件模式 / 最近 5 条活动 / 当前状态 / 下一步 / 真实计数）：
 
-![Always-on 进度卡](docs/hud.png)
+![Always-on HUD](docs/hud.png)
+
+窄屏（414px）自动改为顶部浮动：
+
+![Always-on HUD 窄屏](docs/hud-mobile.png)
 
 Workspace 面板与设置（v1 截图，v2 布局未变，仅新增 4 项设置与 11 状态文案）：
 
@@ -28,19 +32,21 @@ Workspace 面板与设置（v1 截图，v2 布局未变，仅新增 4 项设置�
 
 ## 一、它能做什么
 
-### Always-on HUD 进度卡（v2 新增）
+### Always-on HUD（v2 新增）
 
 | 项 | 值 |
 |---|---|
-| 尺寸 | 宽 260–300px、高 120–160px（`clamp(260px, 24vw, 300px)`） |
-| 位置 | 右下角，`bottom: 104px`（避开输入框与能量球）；球被拖上来时卡片自动避让 |
-| 内容 | 状态主语 + 具体对象（`bash · hub.ts`、`第 5 轮 · 第 176 步`、`已静默 34 秒`）+ 细进度条 + 两个按钮 |
-| 自动展开 | `auto` 模式下 Agent 活跃即展开，回到 idle/quiet 收成单行胶囊 |
-| 手动收起 | 点 × 后**永不自动弹回**，只有用户自己点「展开」才恢复（状态持久化） |
-| 三种模式 | `auto` 自动展开 / `compact` 始终紧凑 / `orb` 仅球体（不显示卡片） |
-| 小屏 | ≤720px 改为顶部浮动、宽度收窄 |
-
-卡片是纯 DOM + 一段作用域内的 CSS（`.no-hud-` 前缀），不新建 WebGL 上下文、不新增依赖，因此 Client 产物只比 v1 大 1 kB。
+| 尺寸 | 宽 `min(470px, 92vw)`，高随内容自适应（最大 `calc(100vh - 180px)`，内部滚动） |
+| 位置 | 对话区右侧，`top: 118px`，不遮挡底部输入区；≤1100px 收窄到 420px；≤720px 改为顶部浮动 |
+| 标题栏 | Logo（内联 SVG 圆环）+ 名称 + 状态胶囊 + `···`（打开 Workspace）+ 📌（固定）+ 收起 |
+| 任务主体 | 左侧 96px 能量球（同一个 WebGL renderer）+ 右侧**任务标题**（来自 `session/title`，没有就写「当前任务处理中」）+ **阶段** + 当前动作 |
+| 运行信息 | 运行时长 + 「纯事件模式 · 0 额外 Token」 |
+| 最近活动 | 最多 5 条：状态图标 + 描述 + 时间 + 状态词；成功绿 / 执行中蓝 / 模型处理紫 / 等待黄 / 失败红 |
+| 当前状态 | 一句话。静默时给出真实秒数（「已连续 45 秒没有收到新的活动事件。」），**永远不会说「卡死」** |
+| 下一步 | 仅当 Agent 自己写了 `todo/write` 计划才显示，否则整块不出现 |
+| 底部 | 只打真实计数：已观察到 N 项活动 · 工具 M 次 · 运行 X 分 Y 秒 |
+| 自动展开 | `auto` 模式下 Agent 活跃即展开，空闲收成紧凑胶囊；用户点过收起后**永不自动弹回** |
+| 固定 | 📌 固定后空闲也不折叠（手动收起仍优先） |
 
 ### 悬浮能量球（Launcher）
 
@@ -218,9 +224,9 @@ plugin_manager remove_bundle   target=dsh-neural-orbit
 | 项 | 命令 / 方式 | 结果 |
 |---|---|---|
 | 类型检查（`strict` + `noUncheckedIndexedAccess`） | `tsc --noEmit -p tsconfig.json` | ✅ 0 错误 |
-| 单元 / 集成测试 | `vitest run` | ✅ **164 项 / 13 文件**全过（v1 的 58 项全部保留） |
-| 构建 | `node scripts/build.mjs` | ✅ `index.js` 43.7 kB、`client.js` 655.7 kB（32 模块） |
-| 运行时数据通路 | `curl /api/neural-orbit/state` | ✅ 返回 v2 快照：`agentState: executing`、`turn: 5`、`step: 182`、`silenceMs: 4158`、`quietLevel: 0`、v2 DTO 行 |
+| 单元 / 集成测试 | `vitest run` | ✅ **224 项 / 14 文件**全过（v1 的 58 项全部保留） |
+| 构建 | `node scripts/build.mjs` | ✅ `index.js` 58.6 kB、`client.js` 676.3 kB（39 模块） |
+| 运行时数据通路 | `curl /api/neural-orbit/state` | ✅ 返回 v2 快照：`task.taskTitle` / `task.phase` / `task.silence.label` / 活动行 / 计数 全部在线生成 |
 | 静默与执行态共存 | 同上（工具执行中连续采样） | ✅ `silenceMs` 44→2112→4158 递增，状态保持 `executing` |
 | Host 行激活 | `plugin_manager list_plugins` / `set_plugin` | ✅ 重载 `applied`，无 warning |
 | 十一状态渲染 | headless Chrome + SwiftShader | ✅ `docs/orb-states-v2.png` |
@@ -237,9 +243,10 @@ plugin_manager remove_bundle   target=dsh-neural-orbit
 
 1. **构建用 esbuild 而非 Vite/tsdown**：两个单文件产物，esbuild 直接产出即可。
 2. **SSE 为主 + 轮询兜底**：若某个中间层缓冲了流，客户端 2.5s 内收不到首帧就改为轮询 `/state`（900ms），SSE 恢复即停。
-3. **活动行一条对应一次工具调用**：文件类工具那一条同时是"工具节点"和"文件节点"（带 `fileKind` + 脱敏 `safeTarget`），不重复两行。
-4. **`quiet` 只覆盖"没有工具在跑"的静默**：跑长命令时的静默由 `quietLevel` 单独上报，状态保持 `executing`，避免把"在干活"说成"卡住"。
-5. **协议版本升到 2**：DTO 字段更名（`name→label`、`timestamp→startedAt`、`target→safeTarget`），旧客户端读到会拒绝渲染。
+3. **HUD 里的 `0 额外 Token` 只指插件自身**：不表示 DSH 主任务不消耗 Token。
+4. **活动行一条对应一次工具调用**：文件类工具那一条同时是"工具节点"和"文件节点"（带 `fileKind` + 脱敏 `safeTarget`），不重复两行。
+5. **`quiet` 只覆盖"没有工具在跑"的静默**：跑长命令时的静默由 `quietLevel` 单独上报，状态保持 `executing`，避免把"在干活"说成"卡住"。
+6. **协议版本升到 3**：DTO 字段更名（`name→label`、`timestamp→startedAt`、`target→safeTarget`），旧客户端读到会拒绝渲染。
 
 ### 上手
 

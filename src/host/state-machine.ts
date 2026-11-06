@@ -19,10 +19,11 @@ import {
   COMPLETED_HOLD_MS,
   ERROR_HOLD_MS,
   INTERRUPTED_HOLD_MS,
-  QUIET_AFTER_MS,
+  SILENCE_LEVEL1_MS,
   type OrbitAgentState,
 } from '../shared/protocol';
-import { quietLevelOf, type QuietLevel } from './quiet';
+import { silenceLevelOf } from './context/silence-detector';
+import type { OrbitSilenceLevel } from '../shared/task-context-types';
 
 /** How a Turn ended, as reported by `turn/end.reason.kind`. */
 export type TurnEndKind =
@@ -105,8 +106,8 @@ export function silenceOf(state: MachineState, at: number): number {
   return Number.isFinite(silence) && silence > 0 ? silence : 0;
 }
 
-export function quietLevelFor(state: MachineState, at: number): QuietLevel {
-  return quietLevelOf(silenceOf(state, at));
+export function quietLevelFor(state: MachineState, at: number): OrbitSilenceLevel {
+  return silenceLevelOf(silenceOf(state, at));
 }
 
 /**
@@ -125,7 +126,7 @@ export function computeState(state: MachineState, at: number): OrbitAgentState {
   if (state.completedUntil > at) return 'completed';
   if (state.openTools.length > 0) return 'executing';
   if (!state.running) return 'idle';
-  if (silenceOf(state, at) >= QUIET_AFTER_MS) return 'quiet';
+  if (silenceOf(state, at) >= SILENCE_LEVEL1_MS) return 'quiet';
   if (state.phase === 'responding') return 'responding';
   if (state.phase === 'preparing') return 'preparing';
   if (state.phase === 'thinking') return 'thinking';
@@ -281,5 +282,5 @@ export function hasPendingHold(state: MachineState, at: number): boolean {
   if (state.approvalId !== null) return true;
   if (!state.running) return false;
   // `quiet` is reached at ten seconds and then only buckets change; both matter.
-  return state.agentState !== 'quiet' || quietLevelOf(silenceOf(state, at)) < 3;
+  return state.agentState !== 'quiet' || silenceLevelOf(silenceOf(state, at)) < 3;
 }

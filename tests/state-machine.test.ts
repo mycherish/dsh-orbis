@@ -11,7 +11,7 @@ import {
   COMPLETED_HOLD_MS,
   ERROR_HOLD_MS,
   INTERRUPTED_HOLD_MS,
-  QUIET_AFTER_MS,
+  SILENCE_LEVEL1_MS,
 } from '../src/shared/protocol';
 
 const T0 = 1_700_000_000_000;
@@ -195,15 +195,15 @@ describe('state machine v2: the five new states', () => {
     expect(machine.agentState).toBe('executing');
   });
 
-  it('silence past ten seconds reads quiet and buckets by level', () => {
+  it('silence past thirty seconds reads quiet and buckets by level', () => {
     const machine = run([{ kind: 'step-start', turn: 1, step: 1, at: T0 }]);
-    expect(computeState(machine, T0 + QUIET_AFTER_MS - 1)).toBe('thinking');
-    expect(quietLevelFor(machine, T0 + QUIET_AFTER_MS - 1)).toBe(0);
+    expect(computeState(machine, T0 + SILENCE_LEVEL1_MS - 1)).toBe('thinking');
+    expect(quietLevelFor(machine, T0 + SILENCE_LEVEL1_MS - 1)).toBe(0);
 
-    expect(computeState(machine, T0 + QUIET_AFTER_MS)).toBe('quiet');
-    expect(quietLevelFor(machine, T0 + QUIET_AFTER_MS)).toBe(1);
-    expect(quietLevelFor(machine, T0 + 30_000)).toBe(2);
-    expect(quietLevelFor(machine, T0 + 60_000)).toBe(3);
+    expect(computeState(machine, T0 + SILENCE_LEVEL1_MS)).toBe('quiet');
+    expect(quietLevelFor(machine, T0 + SILENCE_LEVEL1_MS)).toBe(1);
+    expect(quietLevelFor(machine, T0 + 60_000)).toBe(2);
+    expect(quietLevelFor(machine, T0 + 180_000)).toBe(3);
   });
 
   it('an executing tool keeps executing even when it is silent for minutes', () => {
@@ -211,9 +211,9 @@ describe('state machine v2: the five new states', () => {
       { kind: 'step-start', turn: 1, step: 1, at: T0 },
       { kind: 'tool-start', id: 'a', at: T0 + 1 },
     ]);
-    expect(computeState(machine, T0 + 120_000)).toBe('executing');
+    expect(computeState(machine, T0 + 200_000)).toBe('executing');
     // The silence is still reported, just not as the headline state.
-    expect(quietLevelFor(machine, T0 + 120_000)).toBe(3);
+    expect(quietLevelFor(machine, T0 + 200_000)).toBe(3);
   });
 
   it('any new signal resets the silence window', () => {

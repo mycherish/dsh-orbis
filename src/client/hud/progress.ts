@@ -1,35 +1,61 @@
 /**
- * The always-on HUD's data layer: snapshot in, Chinese copy / colour tone /
- * progress weight out.
+ * The always-on HUD's rule set: one snapshot in, Chinese copy / colour tokens /
+ * clock text out.
  *
- * Deliberately pure — no React, no DOM, no timers, no `Date.now()` — so the
- * whole rule set (eleven states, silence wording, progress weights, the
- * auto-expand policy) is unit-testable without jsdom.
+ * Deliberately pure — no React, no DOM, no timers, no `Date.now()` — so every
+ * decision the panel makes (the eleven status words, the activity icon and
+ * colour vocabulary, the two runtime pills, the expand policy, the silence
+ * gate, the footer arithmetic) is unit-testable without jsdom.
  *
- * Invariants the component relies on:
- *  - the second line never contains a raw tool argument, command or path; it is
- *    built only from `label`, `safeTarget`, `activeTools`, `silenceMs` and the
- *    aggregate metrics;
- *  - progress never grows with elapsed time: silence cannot look like work.
+ * Invariants the components rely on:
+ *  - nothing here reads a clock: `formatClock` / `formatElapsed` /
+ *    `runtimePills` take the instant as an argument, so a test can pin it;
+ *  - the activity text is built only from `label` / `safeTarget` / `redacted`,
+ *    so no tool argument, command, path or file body can reach the panel;
+ *  - `runtimePills().mode` is the constant 「纯事件模式 · 0 额外 Token」: this
+ *    plugin never calls a model, and the copy must not drift from that fact.
  */
-import type { OrbitConnection, OrbitDisplayMode } from '../contracts';
-import type { OrbitActivity, OrbitAgentState, OrbitSnapshot } from '../../shared/protocol';
+import {
+  ORBIT_PALETTE,
+  type OrbitConnection,
+  type OrbitDisplayMode,
+} from '../contracts';
+import type {
+  OrbitActivity,
+  OrbitAgentState,
+  OrbitActivityStatus,
+  OrbitTaskContext,
+  OrbitToolCategory,
+} from '../../shared/protocol';
+import {
+  CATEGORY_LABEL,
+  PHASE_LABEL,
+  SENSITIVE_TARGET_LABEL,
+  TASK_TITLE_FALLBACK,
+} from '../../shared/task-context-types';
+import { HUD_RECENT_ROWS } from '../../shared/protocol';
 
-/** Colour mood of a state; the card maps it to an accent and to motion. */
+/** Colour mood of a state; the panel maps it to motion, not to hue. */
 export type HudTone = 'calm' | 'busy' | 'alert' | 'done';
 
-/** How the card should present itself right now. */
+/** How the panel presents itself right now. */
 export type HudCardMode = 'hidden' | 'expanded' | 'compact';
 
-/** The one-line subject of each of the eleven states. */
-export const HUD_STATE_TITLE: Record<OrbitAgentState, string> = {
-  idle: '空闲',
-  starting: '开始处理',
+const P = ORBIT_PALETTE;
+
+/* ------------------------------------------------------------------ *
+ * State → word / tone
+ * ------------------------------------------------------------------ */
+
+/** The one status word each of the eleven states shows in the header pill. */
+export const HUD_STATUS_CHIP: Record<OrbitAgentState, string> = {
+  idle: '待机',
+  starting: '启动中',
   thinking: '思考中',
-  preparing: '准备调用工具',
+  preparing: '准备工具',
   executing: '执行中',
   responding: '回复中',
-  waiting: '等待你确认',
+  waiting: '等待审批',
   quiet: '静默中',
   completed: '已完成',
   interrupted: '已中断',
@@ -50,158 +76,276 @@ const STATE_TONE: Record<OrbitAgentState, HudTone> = {
   error: 'alert',
 };
 
-/** `completed` / `interrupted` / `error` are the settled states. */
-const TERMINAL_STATES: ReadonlySet<OrbitAgentState> = new Set<OrbitAgentState>([
-  'completed',
-  'interrupted',
-  'error',
-]);
-
-function clamp01(value: number): number {
-  return Math.min(1, Math.max(0, value));
+/** Chinese status word for the header pill. Never empty, all eleven distinct. */
+export function hudStatusChip(state: OrbitAgentState): string {
+  return HUD_STATUS_CHIP[state] ?? HUD_STATUS_CHIP.idle;
 }
 
-/** True while the Agent is doing something worth unfolding a card for. */
+/** Colour mood; the panel turns this into pulse / glow, never into a hue swap. */
+export function hudTone(state: OrbitAgentState): HudTone {
+  return STATE_TONE[state];
+}
+
+/** True while the Agent is doing something worth unfolding the panel for. */
 export function isActiveState(state: OrbitAgentState): boolean {
   return state !== 'idle' && state !== 'quiet';
 }
 
 /** True for the three settled states that end a turn. */
 export function isSettledState(state: OrbitAgentState): boolean {
-  return TERMINAL_STATES.has(state);
+  return state === 'completed' || state === 'interrupted' || state === 'error';
 }
 
-/** Line one: what the Agent is doing, plus a truthful connection caveat. */
-export function hudTitle(snapshot: OrbitSnapshot, connection: OrbitConnection): string {
-  const base = HUD_STATE_TITLE[snapshot.agentState];
-  if (connection === 'closed') return `已离线 · ${base}`;
-  if (connection === 'reconnecting') return `重连中 · ${base}`;
+/**
+ * Header pill text: the state word, plus an honest caveat when the stream is
+ * not live. The caveat never replaces the state — the panel still says what
+ * the Agent was last doing.
+ */
+export function hudChipText(state: OrbitAgentState, connection: OrbitConnection): string {
+  const base = hudStatusChip(state);
+  if (connection === 'closed') return `${base} · 已离线`;
+  if (connection === 'reconnecting') return `${base} · 重连中`;
   return base;
 }
 
-/** `23000` → 「已静默 23 秒」; over a minute it switches to minutes. */
-export function formatSilence(silenceMs: number): string {
-  const seconds = Math.max(0, Math.round((Number.isFinite(silenceMs) ? silenceMs : 0) / 1000));
-  if (seconds < 60) return `已静默 ${seconds} 秒`;
-  const minutes = Math.floor(seconds / 60);
-  const rest = seconds % 60;
-  return rest === 0 ? `已静默 ${minutes} 分` : `已静默 ${minutes} 分 ${rest} 秒`;
+/* ------------------------------------------------------------------ *
+ * Activity vocabulary
+ * ------------------------------------------------------------------ */
+
+/** One glyph per activity outcome (spec §5.1: ✓ ◉ ✕ …). */
+export const ACTIVITY_ICON: Record<OrbitActivityStatus, string> = {
+  running: '◉',
+  success: '✓',
+  failed: '✕',
+  cancelled: '…',
+  unknown: '·',
+};
+
+/** The word shown in the row's right-hand column. */
+export const ACTIVITY_STATUS_LABEL: Record<OrbitActivityStatus, string> = {
+  running: '进行中',
+  success: '完成',
+  failed: '失败',
+  cancelled: '已取消',
+  unknown: '已记录',
+};
+
+export function activityIcon(status: OrbitActivityStatus): string {
+  return ACTIVITY_ICON[status] ?? ACTIVITY_ICON.unknown;
 }
 
-/** `label` plus the whitelisted target; never any raw argument. */
-function activityText(event: OrbitActivity | undefined, fallback: string): string {
-  if (event === undefined) return fallback;
-  const label = typeof event.label === 'string' && event.label !== '' ? event.label : fallback;
-  const target = event.safeTarget;
-  if (typeof target !== 'string' || target === '') return label;
-  return `${label} · ${target}`;
+export function activityStatusLabel(status: OrbitActivityStatus): string {
+  return ACTIVITY_STATUS_LABEL[status] ?? ACTIVITY_STATUS_LABEL.unknown;
 }
 
-/** `第 2 轮 · 第 5 步`, degrading gracefully when a counter is missing. */
-function stepText(snapshot: OrbitSnapshot): string {
-  const parts: string[] = [];
-  if (typeof snapshot.turn === 'number' && snapshot.turn > 0) parts.push(`第 ${snapshot.turn} 轮`);
-  if (typeof snapshot.step === 'number' && snapshot.step > 0) parts.push(`第 ${snapshot.step} 步`);
+/**
+ * Row colour, from the shared palette only.
+ *
+ * Precedence is deliberate: an outcome (失败 / 已取消) always wins over a
+ * category, because the outcome is what the eye must find first; then the two
+ * "model is thinking" families, then the success/running split, and only then
+ * the neutral dim.
+ */
+export function activityColor(
+  category: OrbitToolCategory,
+  status: OrbitActivityStatus,
+): string {
+  if (status === 'failed') return P.error;
+  if (status === 'cancelled') return P.labelDim;
+  if (category === 'approval') return P.warning;
+  if (category === 'reasoning' || category === 'response') return P.purple;
+  if (status === 'success') return P.success;
+  if (status === 'running') return P.blue;
+  return P.labelDim;
+}
+
+/**
+ * Row text: the safe label plus the whitelisted target. A row the Host had to
+ * mask never shows its (partial) target at all — it collapses to one fixed
+ * sentence, so a masked name cannot be guessed from its neighbours either.
+ */
+export function activityText(activity: OrbitActivity): string {
+  if (activity.redacted === true) return SENSITIVE_TARGET_LABEL;
+  const raw = typeof activity.label === 'string' ? activity.label.trim() : '';
+  const label = raw === '' ? CATEGORY_LABEL[activity.category] ?? CATEGORY_LABEL.unknown : raw;
+  const target = typeof activity.safeTarget === 'string' ? activity.safeTarget.trim() : '';
+  return target === '' ? label : `${label} · ${target}`;
+}
+
+/** Newest-first rows, capped to what the panel draws. The Host already sorts. */
+export function hudActivityRows(task: OrbitTaskContext, max: number = HUD_RECENT_ROWS): OrbitActivity[] {
+  if (!Array.isArray(task.recentActivities) || max <= 0) return [];
+  return task.recentActivities.slice(0, max);
+}
+
+/* ------------------------------------------------------------------ *
+ * Clocks — pure: every instant is an argument
+ * ------------------------------------------------------------------ */
+
+/** `14:02` in the viewer's local time. A bad instant degrades to `--:--`. */
+export function formatClock(epochMs: number): string {
+  if (typeof epochMs !== 'number' || !Number.isFinite(epochMs)) return '--:--';
+  const date = new Date(epochMs);
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return '--:--';
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+/**
+ * `15 分 42 秒` / `1 小时 03 分` / `42 秒`.
+ *
+ * Seconds are dropped once an hour is involved (a HUD does not need them at
+ * that scale) but kept zero-padded, so the pill never jitters in width.
+ */
+export function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor((Number.isFinite(ms) ? ms : 0) / 1000));
+  const seconds = total % 60;
+  const minutes = Math.floor(total / 60) % 60;
+  const hours = Math.floor(total / 3600);
+  if (hours > 0) return `${hours} 小时 ${String(minutes).padStart(2, '0')} 分`;
+  if (total >= 60) {
+    return seconds === 0 ? `${minutes} 分` : `${minutes} 分 ${seconds} 秒`;
+  }
+  return `${total} 秒`;
+}
+
+/** The constant half of the second pill — this plugin never calls a model. */
+export const RUNTIME_MODE_LABEL = '纯事件模式 · 0 额外 Token';
+
+/** Milliseconds from the first observed event to `now`, clamped at zero. */
+export function taskElapsedMs(task: OrbitTaskContext, now: number): number {
+  const end = Number.isFinite(now) ? now : task.lastActivityAt;
+  const start = Number.isFinite(task.startedAt) ? task.startedAt : end;
+  return Math.max(0, end - start);
+}
+
+/**
+ * The two info pills under the title.
+ *
+ * `now` is a parameter (never `Date.now()`), so the shell can hand in its
+ * ticking clock and a test can pin one instant. While the stream is down the
+ * countdown stops at the last event we actually saw: we do not claim the Agent
+ * kept running through a window we could not observe.
+ */
+export function runtimePills(
+  task: OrbitTaskContext,
+  connection: OrbitConnection = 'open',
+  now: number = task.lastActivityAt,
+): { elapsed: string; mode: string } {
+  const instant = connection === 'closed' ? Math.min(now, task.lastActivityAt) : now;
+  return {
+    elapsed: formatElapsed(taskElapsedMs(task, instant)),
+    mode: RUNTIME_MODE_LABEL,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Copy
+ * ------------------------------------------------------------------ */
+
+/** Fixed sentence per state, used when there is no better real signal. */
+export const STATUS_SENTENCE: Record<OrbitAgentState, string> = {
+  idle: '当前没有新活动。',
+  starting: '正在接收任务。',
+  thinking: '正在分析，当前没有新的工具调用。',
+  preparing: '正在选择要使用的工具。',
+  executing: '正在执行工具调用。',
+  responding: '正在组织答复。',
+  waiting: '正在等待用户审批。',
+  quiet: '暂时没有新活动，会话仍在进行。',
+  completed: '本轮任务已完成。',
+  interrupted: '本轮已中断，可在工作区查看细节。',
+  error: '最近一次操作没有成功，可在工作区查看细节。',
+};
+
+export function statusSentence(state: OrbitAgentState): string {
+  return STATUS_SENTENCE[state] ?? STATUS_SENTENCE.idle;
+}
+
+/** The task title, with an honest mark when it is the generic fallback. */
+export function taskTitleOf(task: OrbitTaskContext | null): { text: string; fallback: boolean } {
+  if (task === null) return { text: TASK_TITLE_FALLBACK, fallback: true };
+  const raw = typeof task.taskTitle === 'string' ? task.taskTitle.trim() : '';
+  if (raw === '' || task.titleSource === 'fallback') return { text: TASK_TITLE_FALLBACK, fallback: true };
+  return { text: raw, fallback: false };
+}
+
+/** The phase line under the title; never empty. */
+export function phaseTextOf(task: OrbitTaskContext | null, state: OrbitAgentState): string {
+  if (task === null) return isActiveState(state) ? '正在接收任务' : '等待任务';
+  const raw = typeof task.phaseLabel === 'string' ? task.phaseLabel.trim() : '';
+  return raw === '' ? PHASE_LABEL[task.phase] ?? PHASE_LABEL.idle : raw;
+}
+
+/** True when the Host actually published a plan step (never predicted). */
+export function nextStepLabel(task: OrbitTaskContext | null): string | undefined {
+  if (task === null) return undefined;
+  const raw = typeof task.nextStep === 'string' ? task.nextStep.trim() : '';
+  return raw === '' ? undefined : raw;
+}
+
+/** Silence is only surfaced when it is real *and* the user kept the switch on. */
+export function shouldShowSilence(
+  task: OrbitTaskContext | null,
+  showSilenceAlert: boolean = true,
+): boolean {
+  if (task === null || showSilenceAlert !== true) return false;
+  const level = task.silence?.level;
+  return typeof level === 'number' && level >= 1;
+}
+
+/**
+ * The one sentence in 「当前状态」.
+ *
+ * Order of truth: the Host's silence sentence (it already knows the duration),
+ * then the newest real action, then a fixed sentence for the state. Nothing
+ * here may say the Agent is stuck or unresponsive — silence is not failure.
+ */
+export function currentStatusText(
+  task: OrbitTaskContext | null,
+  state: OrbitAgentState,
+  showSilenceAlert: boolean = true,
+): string {
+  if (task === null) {
+    return state === 'idle' ? '等待第一条任务事件…' : statusSentence(state);
+  }
+  if (shouldShowSilence(task, showSilenceAlert)) {
+    const label = typeof task.silence.label === 'string' ? task.silence.label.trim() : '';
+    if (label !== '') return label;
+  }
+  const action = typeof task.currentAction === 'string' ? task.currentAction.trim() : '';
+  if (action !== '') return action;
+  return statusSentence(state);
+}
+
+/**
+ * The footer line. Only real counters are printed: a zero tool count is
+ * omitted instead of being drawn as 「工具 0 次」.
+ */
+export function footerStats(task: OrbitTaskContext | null, elapsed: string): string {
+  if (task === null) return '尚未收到任务事件';
+  const observed = Math.max(0, Math.round(task.observedActivityCount));
+  const parts: string[] = [
+    observed === 0 ? '尚未观察到活动' : `已观察到 ${observed} 项活动`,
+  ];
+  const tools = Math.max(0, Math.round(task.toolCallCount));
+  if (tools > 0) parts.push(`工具 ${tools} 次`);
+  parts.push(`运行 ${elapsed}`);
   return parts.join(' · ');
 }
 
-/** The newest row with a given status, used for the `error` line. */
-function newestWithStatus(snapshot: OrbitSnapshot, status: OrbitActivity['status']): OrbitActivity | undefined {
-  return snapshot.events.find((event) => event.status === status);
-}
+/* ------------------------------------------------------------------ *
+ * Panel policy
+ * ------------------------------------------------------------------ */
 
 /**
- * Line two: the concrete object or count behind the state. Built only from safe
- * fields, so nothing here can echo a tool argument, command or file content.
- */
-export function hudDetail(snapshot: OrbitSnapshot): string {
-  const latest = snapshot.events[0];
-  const tools = Math.max(0, snapshot.activeTools);
-  const metrics = snapshot.metrics ?? { turns: 0, steps: 0, tools: 0, files: 0, approvals: 0, retries: 0, startedAt: 0 };
-
-  switch (snapshot.agentState) {
-    case 'idle':
-      return '暂无进行中的任务';
-    case 'starting': {
-      const steps = stepText(snapshot);
-      return steps === '' ? '正在接收任务' : `${steps} · 正在接收任务`;
-    }
-    case 'thinking': {
-      const steps = stepText(snapshot);
-      return steps === '' ? '正在推理下一步' : `${steps} · 推理中`;
-    }
-    case 'preparing':
-      return activityText(latest, '正在选择要用的工具');
-    case 'executing':
-      // The newest activity row is the truth here; counts only as a fallback.
-      return tools === 0
-        ? activityText(latest, '正在执行工具')
-        : activityText(latest, `共 ${tools} 个工具正在执行`);
-    case 'responding': {
-      const steps = stepText(snapshot);
-      return steps === '' ? '正在生成回复' : `${steps} · 生成回复`;
-    }
-    case 'waiting':
-      return activityText(latest, '需要你的确认才能继续');
-    case 'quiet':
-      return formatSilence(snapshot.silenceMs);
-    case 'completed':
-      return `共 ${metrics.steps} 步 · ${metrics.tools} 次工具`;
-    case 'interrupted':
-      return '本轮已中断，可在 Workspace 查看';
-    case 'error':
-      return activityText(newestWithStatus(snapshot, 'error'), '出错了，可在 Workspace 查看');
-    default:
-      return '';
-  }
-}
-
-/**
- * 0..1 bar weight, derived from real signals only:
- * `activeTools` (how much is in flight) — never from `silenceMs` or any clock.
- * `quiet` therefore stays low and flat: silence is not progress.
- */
-export function hudProgress(snapshot: OrbitSnapshot): number {
-  const tools = Math.max(0, snapshot.activeTools);
-  switch (snapshot.agentState) {
-    case 'idle':
-      return 0;
-    case 'starting':
-      return 0.08;
-    case 'thinking':
-      return 0.18;
-    case 'preparing':
-      return 0.26;
-    case 'executing':
-      return clamp01(Math.min(0.85, 0.45 + tools * 0.05));
-    case 'responding':
-      return 0.7;
-    case 'waiting':
-      return 0.78;
-    case 'quiet':
-      // A running tool is still real work; silence alone never advances the bar.
-      return tools === 0 ? 0.2 : clamp01(Math.min(0.5, 0.3 + tools * 0.05));
-    case 'completed':
-    case 'interrupted':
-    case 'error':
-      return 1;
-    default:
-      return 0;
-  }
-}
-
-/** Colour mood; the card turns this into accent + motion. */
-export function hudTone(state: OrbitAgentState): HudTone {
-  return STATE_TONE[state];
-}
-
-/**
- * The auto-expand policy, in one pure function:
- *  - `orb` mode draws no card at all;
- *  - `compact` mode is always the single line;
- *  - `auto` unfolds while the Agent is active, folds down to the single line
- *    when it is not — but a card the user folded by hand never unfolds itself
- *    again, no matter which event arrives next.
+ * The expand policy, in one pure function:
+ *  - `orb` draws no panel at all;
+ *  - `compact` is always the one-line chip;
+ *  - `auto` unfolds while the Agent is active and folds when it is not — but a
+ *    panel the user folded by hand never unfolds itself again, whatever event
+ *    arrives next.
  */
 export function hudCardMode(
   displayMode: OrbitDisplayMode,
@@ -212,38 +356,4 @@ export function hudCardMode(
   if (displayMode === 'compact') return 'compact';
   if (collapsed) return 'compact';
   return isActiveState(state) ? 'expanded' : 'compact';
-}
-
-/* ------------------------------------------------------------------ *
- * Corner reservation
- * ------------------------------------------------------------------ */
-
-/** Default card anchor measured from the viewport bottom. */
-const HUD_BASE_BOTTOM = 104;
-/** Gap kept between the orb and the card when the card steps aside. */
-const HUD_ORB_GAP = 12;
-/** Square edge of the draggable orb. */
-const ORB_SIZE = 76;
-/** Card footprint from the right edge, at its widest. */
-const HUD_SPAN_RIGHT = 24 + 300;
-/** Expanded card height cap and the collapsed chip height. */
-const HUD_HEIGHT = 160;
-const HUD_CHIP_HEIGHT = 32;
-
-/**
- * Where the card should sit so it never covers the orb.
- *
- * The card lives in the lower-right corner and the orb is draggable, so the
- * shell asks this function before every render: when the two footprints would
- * intersect, the card rises to sit just above the orb instead of drawing over
- * it. Pure arithmetic — no DOM, no layout read — so it is unit-testable.
- */
-export function hudDodgeOffset(position: { right: number; bottom: number }, collapsed: boolean): number {
-  const height = collapsed ? HUD_CHIP_HEIGHT : HUD_HEIGHT;
-  const overlapsHorizontally = position.right < HUD_SPAN_RIGHT;
-  const cardTop = HUD_BASE_BOTTOM + height;
-  const orbTop = position.bottom + ORB_SIZE;
-  const overlapsVertically = orbTop > HUD_BASE_BOTTOM && position.bottom < cardTop;
-  if (!overlapsHorizontally || !overlapsVertically) return HUD_BASE_BOTTOM;
-  return Math.round(position.bottom + ORB_SIZE + HUD_ORB_GAP);
 }

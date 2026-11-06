@@ -1,12 +1,13 @@
 // src/shared/protocol.ts
-var ORBIT_PROTOCOL_VERSION = 2;
+var ORBIT_PROTOCOL_VERSION = 3;
 var MAX_ACTIVITY_ROWS = 40;
+var HUD_RECENT_ROWS = 5;
 var COMPLETED_HOLD_MS = 2500;
 var INTERRUPTED_HOLD_MS = 3e3;
 var ERROR_HOLD_MS = 4e3;
-var QUIET_AFTER_MS = 1e4;
-var QUIET_LEVEL2_MS = 3e4;
-var QUIET_LEVEL3_MS = 6e4;
+var SILENCE_LEVEL1_MS = 3e4;
+var SILENCE_LEVEL2_MS = 6e4;
+var SILENCE_LEVEL3_MS = 18e4;
 var CALL_TIMEOUT_MS = 10 * 6e4;
 var HEARTBEAT_MS = 3e4;
 var STATE_ROUTE = "/api/neural-orbit/state";
@@ -112,12 +113,41 @@ var CallRegistry = class _CallRegistry {
   }
 };
 
-// src/host/quiet.ts
-function quietLevelOf(silenceMs) {
-  if (typeof silenceMs !== "number" || !Number.isFinite(silenceMs) || silenceMs < QUIET_AFTER_MS) return 0;
-  if (silenceMs < QUIET_LEVEL2_MS) return 1;
-  if (silenceMs < QUIET_LEVEL3_MS) return 2;
+// src/host/context/silence-detector.ts
+function silenceLevelOf(ms) {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < SILENCE_LEVEL1_MS) return 0;
+  if (ms < SILENCE_LEVEL2_MS) return 1;
+  if (ms < SILENCE_LEVEL3_MS) return 2;
   return 3;
+}
+function humanDuration(ms) {
+  const total = Math.max(0, Math.round(ms / 1e3));
+  if (total < 60) return `${total} \u79D2`;
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return rest === 0 ? `${minutes} \u5206\u949F` : `${minutes} \u5206 ${String(rest).padStart(2, "0")} \u79D2`;
+}
+function silenceLabel(input) {
+  const level = silenceLevelOf(input.ms);
+  if (level === 0) {
+    if (input.waitingApproval) return "\u6B63\u5728\u7B49\u5F85\u4F60\u7684\u5BA1\u6279\u3002";
+    if (input.activeTools > 0) return "\u5DE5\u5177\u6B63\u5728\u6267\u884C\uFF0C\u7B49\u5F85\u8F93\u51FA\u3002";
+    if (input.responding) return "\u6A21\u578B\u6B63\u5728\u7EC4\u7EC7\u7B54\u590D\u3002";
+    return input.turnOpen ? "\u6A21\u578B\u6B63\u5728\u5904\u7406\u8BF7\u6C42\u3002" : "\u5F53\u524D\u6CA1\u6709\u65B0\u7684\u6D3B\u52A8\u3002";
+  }
+  const elapsed = humanDuration(input.ms);
+  if (input.waitingApproval) return `\u5DF2\u7B49\u5F85\u4F60\u7684\u5BA1\u6279 ${elapsed}\uFF0C\u4EFB\u52A1\u6682\u505C\u5728\u6B64\u5904\u3002`;
+  if (input.activeTools > 0) {
+    return level >= 2 ? `\u5DE5\u5177\u4ECD\u5728\u6267\u884C\uFF0C\u5DF2 ${elapsed} \u6CA1\u6709\u65B0\u7684\u8F93\u51FA\u3002` : `\u5DE5\u5177\u6267\u884C\u4E2D\uFF0C\u5DF2 ${elapsed} \u6CA1\u6709\u65B0\u7684\u8F93\u51FA\u3002`;
+  }
+  if (input.responding) return `\u6A21\u578B\u4ECD\u5728\u8F93\u51FA\uFF0C\u5DF2 ${elapsed} \u6CA1\u6709\u65B0\u7684\u6D3B\u52A8\u4E8B\u4EF6\u3002`;
+  if (level >= 3) return `\u5DF2\u8D85\u8FC7 ${elapsed} \u6CA1\u6709\u6536\u5230\u4EFB\u4F55\u6D3B\u52A8\uFF0C\u5EFA\u8BAE\u68C0\u67E5\u4EFB\u52A1\u72B6\u6001\u3002`;
+  if (level === 2) return `\u5DF2 ${elapsed} \u6CA1\u6709\u65B0\u7684\u6D3B\u52A8\u66F4\u65B0\u3002`;
+  return `\u5DF2\u8FDE\u7EED ${elapsed} \u6CA1\u6709\u6536\u5230\u65B0\u7684\u6D3B\u52A8\u4E8B\u4EF6\u3002`;
+}
+function detectSilence(input) {
+  const ms = Number.isFinite(input.ms) && input.ms > 0 ? Math.round(input.ms) : 0;
+  return { ms, level: silenceLevelOf(ms), label: silenceLabel({ ...input, ms }) };
 }
 
 // src/host/state-machine.ts
@@ -140,7 +170,7 @@ function silenceOf(state, at) {
   return Number.isFinite(silence) && silence > 0 ? silence : 0;
 }
 function quietLevelFor(state, at) {
-  return quietLevelOf(silenceOf(state, at));
+  return silenceLevelOf(silenceOf(state, at));
 }
 function computeState(state, at) {
   if (state.approvalId !== null) return "waiting";
@@ -149,7 +179,7 @@ function computeState(state, at) {
   if (state.completedUntil > at) return "completed";
   if (state.openTools.length > 0) return "executing";
   if (!state.running) return "idle";
-  if (silenceOf(state, at) >= QUIET_AFTER_MS) return "quiet";
+  if (silenceOf(state, at) >= SILENCE_LEVEL1_MS) return "quiet";
   if (state.phase === "responding") return "responding";
   if (state.phase === "preparing") return "preparing";
   if (state.phase === "thinking") return "thinking";
@@ -272,53 +302,80 @@ function hasPendingHold(state, at) {
   if (state.errorUntil > at || state.completedUntil > at || state.interruptedUntil > at) return true;
   if (state.approvalId !== null) return true;
   if (!state.running) return false;
-  return state.agentState !== "quiet" || quietLevelOf(silenceOf(state, at)) < 3;
+  return state.agentState !== "quiet" || silenceLevelOf(silenceOf(state, at)) < 3;
 }
 
-// src/host/categories.ts
-var REGISTRY = {
-  // ---- shell / process -----------------------------------------------------
-  bash: "shell",
-  run_code: "shell",
-  run_command: "shell",
-  execute: "shell",
-  exec: "shell",
-  terminal_open: "shell",
-  terminal_send: "shell",
-  terminal_read: "shell",
-  terminal_close: "shell",
-  terminal_list: "shell",
-  terminal_signal: "shell",
-  pwsh: "shell",
-  powershell: "shell",
-  job_output: "shell",
-  job_kill: "shell",
-  job_list: "shell",
+// src/shared/task-context-types.ts
+var CATEGORY_LABEL = {
+  reasoning: "\u6A21\u578B\u5904\u7406\u4E2D",
+  file_read: "\u8BFB\u53D6\u9879\u76EE\u6587\u4EF6",
+  file_write: "\u4FEE\u6539\u6587\u4EF6",
+  command: "\u6267\u884C\u547D\u4EE4",
+  search: "\u641C\u7D22\u4EE3\u7801\u6216\u8D44\u6599",
+  build: "\u6784\u5EFA\u9879\u76EE",
+  test: "\u6267\u884C\u6D4B\u8BD5",
+  api: "\u63A5\u53E3\u67E5\u8BE2",
+  database: "\u6570\u636E\u5E93\u64CD\u4F5C",
+  inspection: "\u68C0\u67E5\u4E0E\u9A8C\u8BC1",
+  approval: "\u7B49\u5F85\u5BA1\u6279",
+  response: "\u7EC4\u7EC7\u7B54\u590D",
+  unknown: "\u6267\u884C\u5176\u4ED6\u64CD\u4F5C"
+};
+var PHASE_LABEL = {
+  idle: "\u5F85\u673A",
+  understanding: "\u7406\u89E3\u9700\u6C42",
+  reading: "\u9605\u8BFB\u9879\u76EE",
+  analyzing: "\u5206\u6790\u4EE3\u7801",
+  editing: "\u4FEE\u6539\u4EE3\u7801",
+  building: "\u6784\u5EFA\u9879\u76EE",
+  testing: "\u6267\u884C\u6D4B\u8BD5",
+  querying: "\u67E5\u8BE2\u63A5\u53E3",
+  verifying: "\u9A8C\u8BC1\u7ED3\u679C",
+  answering: "\u6574\u7406\u7B54\u590D",
+  waiting: "\u7B49\u5F85\u5BA1\u6279"
+};
+var TASK_TITLE_FALLBACK = "\u5F53\u524D\u4EFB\u52A1\u5904\u7406\u4E2D";
+var SENSITIVE_TARGET_LABEL = "\u8BFB\u53D6\u654F\u611F\u914D\u7F6E\u6587\u4EF6";
+
+// src/host/activity/classifier.ts
+var EXACT = {
   // ---- file reads ----------------------------------------------------------
-  read: "file-read",
-  read_image: "file-read",
-  ls: "file-read",
-  view: "file-read",
-  lsp_diagnostics: "file-read",
-  lsp_symbols: "file-read",
-  lsp_completion: "file-read",
-  lsp_signature: "file-read",
-  lsp_inlay_hints: "file-read",
+  read: "file_read",
+  read_image: "file_read",
+  ls: "file_read",
+  view: "file_read",
   // ---- file writes ---------------------------------------------------------
-  write: "file-write",
-  edit: "file-write",
-  apply_patch: "file-write",
-  str_replace: "file-write",
-  str_replace_editor: "file-write",
-  lsp_rename: "file-write",
-  lsp_format: "file-write",
-  create_directory: "file-write",
-  mkdir: "file-write",
+  write: "file_write",
+  edit: "file_write",
+  apply_patch: "file_write",
+  str_replace: "file_write",
+  str_replace_editor: "file_write",
+  lsp_rename: "file_write",
+  lsp_format: "file_write",
+  mkdir: "file_write",
+  create_directory: "file_write",
+  // ---- commands ------------------------------------------------------------
+  bash: "command",
+  run_code: "command",
+  run_command: "command",
+  exec: "command",
+  execute: "command",
+  pwsh: "command",
+  powershell: "command",
+  terminal_open: "command",
+  terminal_send: "command",
+  terminal_read: "command",
+  terminal_close: "command",
+  terminal_list: "command",
+  terminal_signal: "command",
+  job_output: "command",
+  job_kill: "command",
+  job_list: "command",
   // ---- search --------------------------------------------------------------
   glob: "search",
   grep: "search",
-  search: "search",
   find: "search",
+  search: "search",
   web_search: "search",
   session_search: "search",
   session_event_search: "search",
@@ -328,104 +385,198 @@ var REGISTRY = {
   session_query: "search",
   find_skills: "search",
   skill: "search",
-  // ---- tests ---------------------------------------------------------------
+  // ---- tests / builds ------------------------------------------------------
   run_tests: "test",
   test: "test",
-  tests: "test",
   vitest: "test",
   pytest: "test",
   jest: "test",
   cargo_test: "test",
   go_test: "test",
-  // ---- browser / network ---------------------------------------------------
-  web_fetch: "browser",
-  browser: "browser",
-  browser_use: "browser",
-  computer_use: "browser",
-  cua: "browser",
-  // ---- orchestration -------------------------------------------------------
-  subagent: "subagent",
-  subagent_fork: "subagent",
-  spawn_teammate: "subagent",
-  send_message: "subagent",
-  wait_agent: "subagent",
-  list_agents: "subagent",
-  interrupt_agent: "subagent",
-  list_subagent_models: "subagent",
-  workflow: "subagent",
-  team_task_create: "subagent",
-  team_task_get: "subagent",
-  team_task_list: "subagent",
-  team_task_update: "subagent",
-  // ---- reasoning / planning ------------------------------------------------
+  build: "build",
+  tsc: "build",
+  esbuild: "build",
+  webpack: "build",
+  vite: "build",
+  make: "build",
+  // ---- inspection ----------------------------------------------------------
+  lsp_diagnostics: "inspection",
+  lsp_symbols: "inspection",
+  lsp_completion: "inspection",
+  lsp_signature: "inspection",
+  lsp_inlay_hints: "inspection",
+  // ---- api / database ------------------------------------------------------
+  web_fetch: "api",
+  http_request: "api",
+  query_api: "api",
+  sql_query: "database",
+  db_query: "database",
+  // ---- orchestration / reasoning ------------------------------------------
   todo_write: "reasoning",
   create_goal: "reasoning",
   update_goal: "reasoning",
   get_goal: "reasoning",
   ask_user_question: "reasoning",
   plan: "reasoning",
-  plan_mode: "reasoning"
+  plan_mode: "reasoning",
+  subagent: "reasoning",
+  subagent_fork: "reasoning",
+  spawn_teammate: "reasoning",
+  send_message: "reasoning",
+  wait_agent: "reasoning",
+  list_agents: "reasoning",
+  interrupt_agent: "reasoning",
+  list_subagent_models: "reasoning",
+  workflow: "reasoning",
+  team_task_create: "reasoning",
+  team_task_get: "reasoning",
+  team_task_list: "reasoning",
+  team_task_update: "reasoning",
+  present: "response"
 };
 var PREFIXES = [
-  ["terminal", "shell"],
-  ["bash", "shell"],
-  ["pwsh", "shell"],
-  ["job_", "shell"],
-  ["lsp_", "file-read"],
-  ["read", "file-read"],
-  ["write", "file-write"],
-  ["edit", "file-write"],
+  ["terminal", "command"],
+  ["bash", "command"],
+  ["pwsh", "command"],
+  ["job_", "command"],
+  ["lsp_", "inspection"],
+  ["read", "file_read"],
+  ["write", "file_write"],
+  ["edit", "file_write"],
   ["glob", "search"],
   ["grep", "search"],
   ["session_", "search"],
-  ["web_", "browser"],
-  ["browser", "browser"],
-  ["cua_", "browser"],
-  ["team_", "subagent"],
-  ["subagent", "subagent"],
+  ["web_", "api"],
+  ["http", "api"],
+  ["browser", "api"],
+  ["cua_", "api"],
+  ["team_", "reasoning"],
+  ["subagent", "reasoning"],
   ["todo", "reasoning"],
   ["goal", "reasoning"],
   ["schedule_", "reasoning"],
   ["skill", "search"]
 ];
-function categoryOf(rawName) {
-  const name2 = typeof rawName === "string" ? rawName.trim().toLowerCase() : "";
-  if (name2 === "") return "other";
-  const exact = REGISTRY[name2];
-  if (exact !== void 0) return exact;
-  for (const [prefix, category] of PREFIXES) {
-    if (name2.startsWith(prefix)) return category;
-  }
-  return "other";
+var SHELL_TOOLS = /* @__PURE__ */ new Set(["bash", "run_command", "run_code", "exec", "execute", "pwsh", "powershell", "terminal_send"]);
+var COMMAND_RULES = [
+  [/\b(pytest|vitest|jest|mocha|cargo test|go test|npm (run )?test|pnpm (run )?test|yarn test|make test)\b/i, "test"],
+  [/\b(npm run build|pnpm (run )?build|yarn build|cargo build|go build|make\b|tsc\b|esbuild|webpack|vite build|docker build)\b/i, "build"],
+  [/\b(psql|mysql|sqlite3?|redis-cli|mongo(d)?|clickhouse)\b/i, "database"],
+  [/\b(curl|wget|http|xh|fetch)\b/i, "api"],
+  [/\b(git (diff|status|log|show|branch)|gh pr|gh run)\b/i, "inspection"],
+  // Deliberately no file_read / file_write rules: a shell call that happens to
+  // mention `cat` or `rm` is still an opaque command to the reader, and
+  // mislabelling it would over-claim what we know.
+  [/\b(rg|ag|ack|fd)\b/i, "search"]
+];
+function normalizeName(rawName) {
+  return typeof rawName === "string" ? rawName.trim().toLowerCase() : "";
 }
-function fileKindOf(rawName) {
-  const name2 = typeof rawName === "string" ? rawName.trim().toLowerCase() : "";
+function commandOf(argumentsJson) {
+  if (typeof argumentsJson !== "string" || argumentsJson.trim() === "") return "";
+  try {
+    const parsed = JSON.parse(argumentsJson);
+    const value = parsed["command"] ?? parsed["cmd"] ?? parsed["script"] ?? parsed["command_line"];
+    return typeof value === "string" ? value.slice(0, 2e3) : "";
+  } catch {
+    return "";
+  }
+}
+function refineCommand(command) {
+  if (command === "") return void 0;
+  for (const [pattern, category] of COMMAND_RULES) {
+    if (pattern.test(command)) return category;
+  }
+  return void 0;
+}
+function classify(input) {
+  const name2 = normalizeName(input.name);
+  if (name2 === "") return { category: "unknown", confidence: "low", inferredFromArguments: false };
+  const exact = EXACT[name2];
+  if (exact !== void 0) {
+    if (exact === "command" && SHELL_TOOLS.has(name2)) {
+      const refined = refineCommand(commandOf(input.argumentsJson));
+      if (refined !== void 0) {
+        return { category: refined, confidence: "medium", inferredFromArguments: true };
+      }
+    }
+    return {
+      category: exact,
+      ...fileKindOfName(name2) === void 0 ? {} : { fileKind: fileKindOfName(name2) },
+      confidence: "high",
+      inferredFromArguments: false
+    };
+  }
+  for (const [prefix, category] of PREFIXES) {
+    if (!name2.startsWith(prefix)) continue;
+    return {
+      category,
+      ...fileKindOfName(name2) === void 0 ? {} : { fileKind: fileKindOfName(name2) },
+      confidence: "medium",
+      inferredFromArguments: false
+    };
+  }
+  if (SHELL_TOOLS.has(name2)) {
+    const refined = refineCommand(commandOf(input.argumentsJson));
+    if (refined !== void 0) {
+      return { category: refined, confidence: "medium", inferredFromArguments: true };
+    }
+    return { category: "command", confidence: "medium", inferredFromArguments: true };
+  }
+  return { category: "unknown", confidence: "low", inferredFromArguments: false };
+}
+function fileKindOfName(rawName) {
+  const name2 = normalizeName(rawName);
   if (name2 === "") return void 0;
-  if (name2 === "write" || name2 === "create_directory" || name2 === "mkdir") return "write";
+  if (name2 === "write" || name2 === "mkdir" || name2 === "create_directory") return "write";
   if (name2 === "edit" || name2 === "apply_patch" || name2 === "lsp_rename" || name2 === "lsp_format" || name2 === "str_replace" || name2 === "str_replace_editor") {
     return "edit";
   }
-  if (name2.startsWith("read") || REGISTRY[name2] === "file-read") return "read";
+  if (name2.startsWith("read") || EXACT[name2] === "file_read") return "read";
   return void 0;
 }
-var CATEGORY_LABEL = {
-  "file-read": "\u8BFB\u53D6\u6587\u4EF6",
-  "file-write": "\u5199\u5165\u6587\u4EF6",
-  shell: "\u6267\u884C\u547D\u4EE4",
-  search: "\u641C\u7D22",
-  test: "\u8FD0\u884C\u6D4B\u8BD5",
-  browser: "\u8BBF\u95EE\u7F51\u7EDC",
-  subagent: "\u534F\u4F5C\u4EE3\u7406",
-  reasoning: "\u6574\u7406\u601D\u8DEF",
-  approval: "\u7B49\u5F85\u5BA1\u6279",
-  other: "\u8C03\u7528\u5DE5\u5177"
-};
+function wantsTarget(category, fileKind) {
+  if (fileKind !== void 0) return true;
+  return category === "search" || category === "inspection";
+}
 
-// src/host/normalize.ts
-var MAX_LABEL = 40;
-var MAX_TOOL_NAME = 32;
-var TARGET_KEYS = ["file_path", "filePath", "path", "target", "pattern", "name"];
-function sanitizeBasename(value) {
+// src/host/activity/redactor.ts
+var MAX_TARGET = 40;
+var SENSITIVE_EXACT = /* @__PURE__ */ new Set([
+  ".env",
+  ".env.local",
+  ".env.production",
+  ".env.development",
+  ".env.test",
+  ".npmrc",
+  ".netrc",
+  ".pgpass",
+  "id_rsa",
+  "id_dsa",
+  "id_ecdsa",
+  "id_ed25519",
+  "known_hosts",
+  "credentials",
+  "credentials.json",
+  "secrets",
+  "secrets.json",
+  "kubeconfig",
+  ".git-credentials",
+  ".htpasswd"
+]);
+var SECRET_EXTENSIONS = /* @__PURE__ */ new Set(["key", "keys", "pem", "p12", "pfx", "crt", "cer", "keystore", "jks", "p8", "secret", "secrets"]);
+var STRONG_WORDS = /(credential|password|passwd|api[_-]?key|access[_-]?token|private[_-]?key)/i;
+function isSensitiveName(basename) {
+  const name2 = basename.trim().toLowerCase();
+  if (name2 === "") return false;
+  if (SENSITIVE_EXACT.has(name2)) return true;
+  if (name2.startsWith(".env")) return true;
+  if (STRONG_WORDS.test(name2)) return true;
+  const dot = name2.lastIndexOf(".");
+  if (dot > 0 && SECRET_EXTENSIONS.has(name2.slice(dot + 1))) return true;
+  return false;
+}
+function redactPath(value) {
   if (typeof value !== "string") return void 0;
   const cleaned = value.replace(/[\u0000-\u001f\u007f]/g, "").trim();
   if (cleaned === "") return void 0;
@@ -435,8 +586,13 @@ function sanitizeBasename(value) {
   if (/^[a-zA-Z]:$/.test(last)) return void 0;
   const withoutQuery = last.replace(/[?#].*$/, "").replace(/[<>"|:]/g, "").trim();
   if (withoutQuery === "" || withoutQuery === "~") return void 0;
-  return withoutQuery.length > MAX_LABEL ? `${withoutQuery.slice(0, MAX_LABEL - 1)}\u2026` : withoutQuery;
+  if (isSensitiveName(withoutQuery)) return { value: SENSITIVE_TARGET_LABEL, redacted: true };
+  return {
+    value: withoutQuery.length > MAX_TARGET ? `${withoutQuery.slice(0, MAX_TARGET - 1)}\u2026` : withoutQuery,
+    redacted: false
+  };
 }
+var TARGET_KEYS = ["file_path", "filePath", "path", "target", "pattern", "name"];
 function targetFromArguments(rawArguments) {
   if (typeof rawArguments !== "string" || rawArguments.trim() === "") return void 0;
   let parsed;
@@ -450,79 +606,260 @@ function targetFromArguments(rawArguments) {
   for (const key of TARGET_KEYS) {
     const value = record[key];
     if (typeof value !== "string" || value.trim() === "") continue;
-    const target = sanitizeBasename(value);
+    const target = redactPath(value);
     if (target !== void 0) return target;
   }
   return void 0;
 }
+function clipLabel(value, max = 32) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (text === "") return "";
+  return text.length > max ? `${text.slice(0, max - 1)}\u2026` : text;
+}
+function safeErrorLabel(code) {
+  return typeof code === "string" && /^[A-Z][A-Z0-9_]{1,30}$/.test(code) ? code : "agent-error";
+}
+
+// src/host/activity/normalizer.ts
+function withTarget(base, target) {
+  if (target === void 0) return base;
+  return { ...base, safeTarget: target.value, ...target.redacted ? { redacted: true } : {} };
+}
 function toolActivity(input) {
-  const category = categoryOf(input.rawName);
-  const fileKind = fileKindOf(input.rawName);
-  const wantsTarget = fileKind !== void 0 || category === "search";
-  const target = wantsTarget ? targetFromArguments(input.argumentsJson) : void 0;
-  const raw = typeof input.rawName === "string" ? input.rawName.trim() : "";
-  const label = (raw === "" ? CATEGORY_LABEL[category] : raw).slice(0, MAX_TOOL_NAME);
+  const classification = classify({ name: input.rawName, argumentsJson: input.argumentsJson });
+  const target = wantsTarget(classification.category, classification.fileKind) ? targetFromArguments(input.argumentsJson) : void 0;
+  const toolName = clipLabel(input.rawName, 32);
+  const label = classification.category === "unknown" && toolName !== "" ? toolName : CATEGORY_LABEL[classification.category];
   const base = {
     id: input.id,
     sessionId: input.sessionId,
-    type: "tool",
-    category,
+    callId: input.id,
+    category: classification.category,
     label,
     status: "running",
     startedAt: input.at,
+    source: "tool",
+    confidence: classification.confidence,
     ...input.turn === void 0 ? {} : { turn: input.turn },
     ...input.step === void 0 ? {} : { step: input.step },
-    ...target === void 0 ? {} : { safeTarget: target }
+    ...classification.fileKind === void 0 ? {} : { fileKind: classification.fileKind }
   };
-  if (fileKind !== void 0) {
-    const row = { ...base, type: "file", fileKind };
-    if (target !== void 0) row.safeTarget = target;
-    return row;
-  }
-  return base;
+  return withTarget(base, target);
 }
 function approvalActivity(at, id, sessionId, toolName, location) {
-  const target = typeof toolName === "string" ? sanitizeBasename(toolName) : void 0;
-  return {
+  const target = typeof toolName === "string" ? redactPath(toolName) : void 0;
+  const base = {
     id,
     sessionId,
-    type: "approval",
     category: "approval",
-    label: "approval",
-    status: "waiting",
+    label: CATEGORY_LABEL.approval,
+    status: "running",
     startedAt: at,
+    source: "approval",
+    confidence: "high",
     ...location?.turn === void 0 ? {} : { turn: location.turn },
-    ...location?.step === void 0 ? {} : { step: location.step },
-    ...target === void 0 ? {} : { safeTarget: target }
+    ...location?.step === void 0 ? {} : { step: location.step }
   };
+  return withTarget(base, target);
 }
 function errorActivity(at, id, sessionId, code) {
-  const label = typeof code === "string" && /^[A-Z][A-Z0-9_]{1,30}$/.test(code) ? code : "agent-error";
   return {
     id,
     sessionId,
-    type: "agent",
-    category: "other",
-    label,
-    status: "error",
-    startedAt: at
+    category: "unknown",
+    label: safeErrorLabel(code),
+    status: "failed",
+    startedAt: at,
+    source: "lifecycle",
+    confidence: "high"
   };
 }
 function retryActivity(at, id, sessionId, attempt) {
-  const label = Number.isFinite(attempt) && attempt > 0 ? `retry-${Math.floor(attempt)}` : "retry";
+  const label = Number.isFinite(attempt) && attempt > 0 ? `\u91CD\u8BD5\u7B2C ${Math.floor(attempt)} \u6B21` : "\u6A21\u578B\u91CD\u8BD5";
   return {
     id,
     sessionId,
-    type: "agent",
     category: "reasoning",
     label,
-    status: "waiting",
-    startedAt: at
+    status: "running",
+    startedAt: at,
+    source: "lifecycle",
+    confidence: "high"
   };
 }
 function settledActivity(row, status, at) {
   const duration = Math.max(0, at - row.startedAt);
-  return { ...row, status, endedAt: at, duration };
+  return { ...row, status, finishedAt: at, duration };
+}
+
+// src/host/context/activity-aggregator.ts
+function aggregateActivities(input) {
+  const rows = input.rows;
+  const recent = rows.slice(0, Math.max(0, input.recentLimit));
+  const active = [];
+  let completed = 0;
+  let failed = 0;
+  let tools = 0;
+  let lastActivityAt = 0;
+  for (const row of rows) {
+    if (row.status === "running") active.push(row);
+    else if (row.status === "success") completed += 1;
+    else if (row.status === "failed") failed += 1;
+    if (row.source === "tool" || row.source === "approval") tools += 1;
+    const moment = row.finishedAt ?? row.startedAt;
+    if (moment > lastActivityAt) lastActivityAt = moment;
+  }
+  return {
+    recentActivities: recent,
+    activeActivities: active,
+    completedCount: completed,
+    failedCount: failed,
+    observedActivityCount: rows.length,
+    toolCallCount: tools,
+    lastActivityAt
+  };
+}
+function currentActionOf(rows) {
+  const newest = rows[0];
+  if (newest === void 0) return void 0;
+  const label = typeof newest.label === "string" && newest.label !== "" ? newest.label : void 0;
+  if (label === void 0) return void 0;
+  const target = newest.safeTarget;
+  return typeof target === "string" && target !== "" ? `${label} \xB7 ${target}` : label;
+}
+
+// src/host/context/phase-inference.ts
+var CATEGORY_PHASE = {
+  reasoning: "analyzing",
+  file_read: "reading",
+  file_write: "editing",
+  command: "analyzing",
+  search: "analyzing",
+  build: "building",
+  test: "testing",
+  api: "querying",
+  database: "querying",
+  inspection: "verifying",
+  approval: "waiting",
+  response: "answering",
+  unknown: "analyzing"
+};
+var WINDOW = 3;
+function phaseOfCategory(category) {
+  return CATEGORY_PHASE[category];
+}
+function isLive(row) {
+  return row.status === "running";
+}
+function inferPhase(input) {
+  const { rows } = input;
+  if (input.waitingApproval) {
+    return { phase: "waiting", phaseLabel: PHASE_LABEL.waiting, confidence: "high", reason: "\u6709\u672A\u51B3\u7684\u5BA1\u6279\u8BF7\u6C42" };
+  }
+  const live = rows.find(isLive);
+  if (live !== void 0) {
+    return {
+      phase: phaseOfCategory(live.category),
+      phaseLabel: PHASE_LABEL[phaseOfCategory(live.category)],
+      confidence: live.confidence,
+      reason: `\u5F53\u524D\u6D3B\u52A8\uFF1A${live.label}`
+    };
+  }
+  const window = rows.slice(0, WINDOW);
+  if (window.length > 0) {
+    const counts = /* @__PURE__ */ new Map();
+    for (const row of window) {
+      const phase = phaseOfCategory(row.category);
+      counts.set(phase, (counts.get(phase) ?? 0) + 1);
+    }
+    let best = "analyzing";
+    let bestCount = 0;
+    for (const [phase, count] of counts) {
+      if (count > bestCount) {
+        best = phase;
+        bestCount = count;
+      }
+    }
+    return {
+      phase: best,
+      phaseLabel: PHASE_LABEL[best],
+      confidence: window.length >= 2 ? "medium" : "low",
+      reason: `\u6700\u8FD1 ${window.length} \u9879\u6D3B\u52A8\u503E\u5411\u300C${PHASE_LABEL[best]}\u300D`
+    };
+  }
+  if (input.responding) {
+    return { phase: "answering", phaseLabel: PHASE_LABEL.answering, confidence: "medium", reason: "\u6A21\u578B\u6B63\u5728\u8F93\u51FA\u6587\u672C" };
+  }
+  if (input.turnOpen) {
+    return {
+      phase: "understanding",
+      phaseLabel: PHASE_LABEL.understanding,
+      confidence: "low",
+      reason: "Turn \u5DF2\u5F00\u59CB\uFF0C\u5C1A\u65E0\u5DE5\u5177\u6D3B\u52A8"
+    };
+  }
+  return { phase: "idle", phaseLabel: PHASE_LABEL.idle, confidence: "low", reason: "\u6CA1\u6709\u53EF\u89C2\u5BDF\u7684\u6D3B\u52A8" };
+}
+
+// src/host/context/task-context-engine.ts
+var MAX_NEXT_STEP = 80;
+function clipPlan(text) {
+  const value = typeof text === "string" ? text.replace(/[\u0000-\u001f\u007f]/g, " ").trim() : "";
+  if (value === "") return void 0;
+  return value.length > MAX_NEXT_STEP ? `${value.slice(0, MAX_NEXT_STEP - 1)}\u2026` : value;
+}
+function buildTaskContext(input) {
+  const aggregate = aggregateActivities({ rows: input.rows, recentLimit: HUD_RECENT_ROWS });
+  const phase = inferPhase({
+    rows: input.rows,
+    turnOpen: input.turnOpen,
+    responding: input.responding,
+    waitingApproval: input.waitingApproval
+  });
+  const title = typeof input.sessionTitle === "string" ? input.sessionTitle.trim() : "";
+  const planItem = (input.plan ?? []).map(clipPlan).find((item) => item !== void 0);
+  const context = {
+    taskTitle: title === "" ? TASK_TITLE_FALLBACK : title,
+    titleSource: title === "" ? "fallback" : "session",
+    phase: phase.phase,
+    phaseLabel: phase.phaseLabel === "" ? PHASE_LABEL[phase.phase] : phase.phaseLabel,
+    recentActivities: aggregate.recentActivities,
+    activeActivities: aggregate.activeActivities,
+    completedCount: aggregate.completedCount,
+    failedCount: aggregate.failedCount,
+    observedActivityCount: aggregate.observedActivityCount,
+    toolCallCount: aggregate.toolCallCount,
+    startedAt: input.startedAt,
+    lastActivityAt: aggregate.lastActivityAt > 0 ? aggregate.lastActivityAt : input.startedAt,
+    silence: input.silence,
+    confidence: phase.confidence,
+    extraTokens: 0,
+    mode: "event-only"
+  };
+  const action = currentActionOf(input.rows);
+  if (action !== void 0) context.currentAction = action;
+  if (planItem !== void 0) context.nextStep = planItem;
+  return context;
+}
+function emptyTaskContext(now) {
+  return {
+    taskTitle: TASK_TITLE_FALLBACK,
+    titleSource: "fallback",
+    phase: "idle",
+    phaseLabel: PHASE_LABEL.idle,
+    recentActivities: [],
+    activeActivities: [],
+    completedCount: 0,
+    failedCount: 0,
+    observedActivityCount: 0,
+    toolCallCount: 0,
+    startedAt: now,
+    lastActivityAt: now,
+    silence: { ms: 0, level: 0, label: "\u5F53\u524D\u6CA1\u6709\u65B0\u7684\u6D3B\u52A8\u3002" },
+    confidence: "low",
+    extraTokens: 0,
+    mode: "event-only"
+  };
 }
 
 // src/host/stream.ts
@@ -602,7 +939,7 @@ function turnEndKindOf(reason) {
   }
 }
 function drainStatusOf(reason) {
-  if (reason === "error" || reason === "blocked") return "error";
+  if (reason === "error" || reason === "blocked") return "failed";
   if (reason === "interrupted" || reason === "aborted") return "cancelled";
   return "success";
 }
@@ -640,6 +977,7 @@ var OrbitHub = class {
       metrics: { turns: 0, steps: 0, tools: 0, files: 0, approvals: 0, retries: 0, startedAt: now },
       version: 1,
       quietLevel: 0,
+      plan: [],
       updatedAt: now
     };
     this.records.set(sessionId, record);
@@ -667,9 +1005,8 @@ var OrbitHub = class {
    * Recompute the published state after a mutation and queue a notification.
    *
    * `stream` uses the throttled channel: transient frames arrive dozens of
-   * times per second and each one still advances the version (so a Client that
-   * polls `/state` sees the truth), but subscribers are only told at most once
-   * per window.
+   * times per second and each one still advances the version, but subscribers
+   * are only told at most once per window.
    */
   touch(record, at, channel = "event") {
     record.machine.agentState = computeState(record.machine, at);
@@ -689,11 +1026,6 @@ var OrbitHub = class {
       this.emit();
     });
   }
-  /**
-   * Transient frames can arrive dozens of times per second; the state machine
-   * applies every one of them, but subscribers are told at most once per
-   * window, which keeps the SSE stream and the Client cheap during streaming.
-   */
   queueStreamNotify() {
     if (this.streamTimer !== null) return;
     this.streamTimer = setTimeout(() => {
@@ -723,7 +1055,7 @@ var OrbitHub = class {
     if (index < 0) return void 0;
     const current = record.activities[index];
     if (current === void 0) return void 0;
-    if (current.status !== "running" && current.status !== "waiting") return void 0;
+    if (current.status !== "running" && current.status !== "unknown") return void 0;
     const settled = settledActivity(current, status, at);
     record.activities[index] = settled;
     return settled;
@@ -731,6 +1063,15 @@ var OrbitHub = class {
   nextId(prefix) {
     this.sequence += 1;
     return `${prefix}:${this.sequence}`;
+  }
+  /** Drop columns of a stale response row once the model moves on. */
+  closeStreamRows(record, at) {
+    for (let index = 0; index < record.activities.length; index += 1) {
+      const row = record.activities[index];
+      if (row === void 0) continue;
+      if (row.source !== "stream" || row.status !== "running") continue;
+      record.activities[index] = settledActivity(row, "success", at);
+    }
   }
   // ------------------------------------------------------------------ folds
   /** Fold one durable DSH Session event. Unknown event types are ignored. */
@@ -741,6 +1082,26 @@ var OrbitHub = class {
     const at = this.mono();
     const data = event.data;
     switch (event.type) {
+      case "session/title": {
+        const record = this.ensure(sessionId);
+        const title = asString(recordOf(data, "title"));
+        if (title === void 0) return;
+        record.title = title;
+        this.touch(record, at);
+        return;
+      }
+      case "todo/write": {
+        const record = this.ensure(sessionId);
+        const todos = recordOf(data, "todos");
+        if (!Array.isArray(todos)) return;
+        record.plan = todos.map((todo) => {
+          const content = asString(recordOf(todo, "content"));
+          const status = asString(recordOf(todo, "status"));
+          return status === "completed" || content === void 0 ? void 0 : content;
+        }).filter((item) => item !== void 0);
+        this.touch(record, at);
+        return;
+      }
       case "turn/start": {
         const record = this.ensure(sessionId);
         record.metrics.turns += 1;
@@ -751,6 +1112,7 @@ var OrbitHub = class {
       case "step/start": {
         const record = this.ensure(sessionId);
         record.metrics.steps += 1;
+        this.closeStreamRows(record, epoch);
         applyEvent(record.machine, {
           kind: "step-start",
           turn: asNumber2(recordOf(data, "turn")),
@@ -772,7 +1134,7 @@ var OrbitHub = class {
         if (outcome.kind === "duplicate" || outcome.kind === "already-settled") return;
         const row = toolActivity({ id: callId, sessionId, rawName: name2, argumentsJson, at: epoch, turn, step });
         record.metrics.tools += 1;
-        if (row.type === "file") record.metrics.files += 1;
+        if (row.fileKind !== void 0) record.metrics.files += 1;
         if (turn !== void 0) record.machine.turn = turn;
         if (step !== void 0) record.machine.step = step;
         if (outcome.kind === "pre-settled") {
@@ -780,9 +1142,10 @@ var OrbitHub = class {
           this.touch(record, at);
           return;
         }
+        this.closeStreamRows(record, epoch);
         this.pushActivity(record, row);
         for (const activity of record.activities) {
-          if (activity.type === "approval" && activity.status === "waiting") {
+          if (activity.category === "approval" && activity.status === "running") {
             this.settleRow(record, activity.id, "success", epoch);
           }
         }
@@ -798,11 +1161,9 @@ var OrbitHub = class {
         const error = recordOf(data, "error");
         const errorCode = asString(recordOf(error, "code"));
         const failed = recordOf(message, "isError") === true || error !== void 0;
-        const status = failed ? errorCode === "ABORTED" || errorCode === "CANCELLED" ? "cancelled" : "error" : "success";
+        const status = failed ? errorCode === "ABORTED" || errorCode === "CANCELLED" ? "cancelled" : "failed" : "success";
         const call = record.calls.settle(callId, status);
-        if (call === void 0) {
-          return;
-        }
+        if (call === void 0) return;
         const resultTurn = asNumber2(recordOf(data, "turn"));
         const resultStep = asNumber2(recordOf(data, "step"));
         if (resultTurn !== void 0) record.machine.turn = resultTurn;
@@ -821,7 +1182,7 @@ var OrbitHub = class {
         const step = asNumber2(recordOf(data, "step"));
         record.metrics.approvals += 1;
         const bridgeIndex = record.activities.findIndex(
-          (row) => row.type === "approval" && row.status === "waiting" && row.id.startsWith("bridge:")
+          (row) => row.category === "approval" && row.status === "running" && row.id.startsWith("bridge:")
         );
         if (bridgeIndex >= 0) {
           const bridge = record.activities[bridgeIndex];
@@ -829,10 +1190,8 @@ var OrbitHub = class {
             record.activities[bridgeIndex] = {
               ...bridge,
               id: approvalId,
-              label: "approval",
               ...turn === void 0 ? {} : { turn },
-              ...step === void 0 ? {} : { step },
-              ...bridge.safeTarget === void 0 && toolName !== void 0 ? { safeTarget: toolName.slice(0, 40) } : {}
+              ...step === void 0 ? {} : { step }
             };
           }
         } else {
@@ -867,7 +1226,11 @@ var OrbitHub = class {
       }
       case "assistant/message": {
         const record = this.ensure(sessionId);
-        if (recordOf(data, "interrupted") !== true) return;
+        this.closeStreamRows(record, epoch);
+        if (recordOf(data, "interrupted") !== true) {
+          this.touch(record, at);
+          return;
+        }
         applyEvent(record.machine, { kind: "interrupted", at });
         this.touch(record, at);
         return;
@@ -875,9 +1238,11 @@ var OrbitHub = class {
       case "turn/end": {
         const record = this.ensure(sessionId);
         const reason = turnEndKindOf(asString(recordOf(recordOf(data, "reason"), "kind")));
-        for (const call of record.calls.drain(drainStatusOf(reason))) {
-          this.settleRow(record, call.callId, drainStatusOf(reason), epoch);
+        const drained = drainStatusOf(reason);
+        for (const call of record.calls.drain(drained)) {
+          this.settleRow(record, call.callId, drained, epoch);
         }
+        this.closeStreamRows(record, epoch);
         applyEvent(record.machine, { kind: "turn-end", reason, at });
         this.touch(record, at);
         return;
@@ -892,11 +1257,8 @@ var OrbitHub = class {
         return "success";
       case "cancelled":
         return "cancelled";
-      case "rejected":
-      case "unavailable":
-        return "error";
       default:
-        return "error";
+        return "failed";
     }
   }
   /**
@@ -945,8 +1307,7 @@ var OrbitHub = class {
     const epoch = this.clock();
     const at = this.mono();
     const id = callId === void 0 ? this.nextId("bridge") : `bridge:${callId}`;
-    const existing = record.activities.find((row) => row.id === id);
-    if (existing === void 0) {
+    if (!record.activities.some((row) => row.id === id)) {
       this.pushActivity(record, approvalActivity(epoch, id, sessionId, toolName));
     }
     applyEvent(record.machine, { kind: "approval-asked", id, at });
@@ -957,8 +1318,8 @@ var OrbitHub = class {
     const record = this.ensure(sessionId);
     const epoch = this.clock();
     const at = this.mono();
-    for (const call of record.calls.drain("error")) {
-      this.settleRow(record, call.callId, "error", epoch);
+    for (const call of record.calls.drain("failed")) {
+      this.settleRow(record, call.callId, "failed", epoch);
     }
     this.pushActivity(record, errorActivity(epoch, this.nextId("error"), sessionId, code));
     applyEvent(record.machine, { kind: "error", at });
@@ -970,12 +1331,11 @@ var OrbitHub = class {
     const record = this.records.get(sessionId);
     if (record === void 0) return;
     record.calls.clear();
-    record.calls = new CallRegistry();
     this.records.delete(sessionId);
     if (this.lastTouched === sessionId) this.lastTouched = void 0;
     this.queueNotify();
   }
-  /** Expire held states and stale calls. Cheap when nothing is pending. */
+  /** Expire held states, silence buckets and stale calls. */
   tick() {
     const at = this.mono();
     const epoch = this.clock();
@@ -1014,6 +1374,35 @@ var OrbitHub = class {
     if (this.lastTouched !== void 0 && this.records.has(this.lastTouched)) return this.lastTouched;
     return this.sessionIds()[0];
   }
+  /**
+   * Build the Task Context for one record.
+   *
+   * Exposed separately so a Client can be served a context without a full
+   * snapshot (diagnostics), and so tests can assert on it directly.
+   */
+  taskContext(sessionId) {
+    const resolved = this.resolveSession(sessionId);
+    const record = resolved === void 0 ? void 0 : this.records.get(resolved);
+    if (record === void 0) return emptyTaskContext(this.clock());
+    const at = this.mono();
+    const silenceInput = {
+      ms: silenceOf(record.machine, at),
+      activeTools: record.machine.openTools.length,
+      waitingApproval: record.machine.approvalId !== null,
+      responding: record.machine.phase === "responding",
+      turnOpen: record.machine.running
+    };
+    return buildTaskContext({
+      rows: record.activities,
+      startedAt: record.metrics.startedAt,
+      ...record.title === void 0 ? {} : { sessionTitle: record.title },
+      plan: record.plan,
+      turnOpen: record.machine.running,
+      responding: record.machine.phase === "responding",
+      waitingApproval: record.machine.approvalId !== null,
+      silence: detectSilence(silenceInput)
+    });
+  }
   snapshot(requested) {
     const sessionId = this.resolveSession(requested);
     const record = sessionId === void 0 ? void 0 : this.records.get(sessionId);
@@ -1026,6 +1415,7 @@ var OrbitHub = class {
         silenceMs: 0,
         quietLevel: 0,
         events: [],
+        task: emptyTaskContext(now),
         updatedAt: now,
         metrics: { turns: 0, steps: 0, tools: 0, files: 0, approvals: 0, retries: 0, startedAt: now }
       };
@@ -1043,6 +1433,7 @@ var OrbitHub = class {
       silenceMs: Math.round(silenceOf(machine, at)),
       quietLevel: quietLevelFor(machine, at),
       events: record.activities.slice(0, this.maxActivities),
+      task: this.taskContext(record.sessionId),
       updatedAt: record.updatedAt,
       metrics: { ...record.metrics }
     };

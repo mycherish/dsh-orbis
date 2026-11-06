@@ -1,6 +1,7 @@
 /**
  * Client state: one zustand store for the snapshot, the transport state, the
- * panel visibility, the user's animation settings and the HUD collapse flag.
+ * panel visibility, the user's animation settings and the HUD's own flags
+ * (folded by hand / pinned).
  * Settings and the launcher position are mirrored into `localStorage`;
  * nothing else is stored.
  *
@@ -56,36 +57,38 @@ function pickBoolean(value: unknown, fallback: boolean): boolean {
 
 /**
  * Coerce anything that came out of storage into a complete `OrbitSettings`.
- * Missing fields fall back to `DEFAULT_SETTINGS`, illegal values fall back per
- * field, and unknown keys are dropped. Pure: no storage access, never throws.
+ *
+ * Booleans are collected by walking `DEFAULT_SETTINGS`, so a new switch costs
+ * one line in `contracts.ts` instead of an edit here — and the result is always
+ * a complete object, which is what makes `sanitizeSettings(x)` equal to
+ * `DEFAULT_SETTINGS` for garbage input. The three unions (display mode, frame
+ * rate, particle density, reduce-motion) are validated explicitly.
+ * Pure: no storage access, never throws.
  */
 export function sanitizeSettings(raw: unknown): OrbitSettings {
   const source: Record<string, unknown> =
     typeof raw === 'object' && raw !== null && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)
       : {};
-  const displayMode =
+  const next: Record<string, unknown> = { ...DEFAULT_SETTINGS };
+  for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof OrbitSettings)[]) {
+    const fallback = DEFAULT_SETTINGS[key];
+    if (typeof fallback === 'boolean') next[key] = pickBoolean(source[key], fallback);
+  }
+  next.displayMode =
     source.displayMode === 'auto' || source.displayMode === 'compact' || source.displayMode === 'orb'
       ? source.displayMode
       : DEFAULT_SETTINGS.displayMode;
-  return {
-    enabled: pickBoolean(source.enabled, DEFAULT_SETTINGS.enabled),
-    displayMode,
-    showHud: pickBoolean(source.showHud, DEFAULT_SETTINGS.showHud),
-    showActivity: pickBoolean(source.showActivity, DEFAULT_SETTINGS.showActivity),
-    fps: source.fps === 60 ? 60 : 30,
-    particles:
-      source.particles === 'low' || source.particles === 'medium' || source.particles === 'high'
-        ? source.particles
-        : DEFAULT_SETTINGS.particles,
-    rings: pickBoolean(source.rings, DEFAULT_SETTINGS.rings),
-    glow: pickBoolean(source.glow, DEFAULT_SETTINGS.glow),
-    reduceMotion:
-      source.reduceMotion === 'on' || source.reduceMotion === 'off' || source.reduceMotion === 'system'
-        ? source.reduceMotion
-        : DEFAULT_SETTINGS.reduceMotion,
-    pauseWhenHidden: pickBoolean(source.pauseWhenHidden, DEFAULT_SETTINGS.pauseWhenHidden),
-  };
+  next.fps = source.fps === 60 ? 60 : 30;
+  next.particles =
+    source.particles === 'low' || source.particles === 'medium' || source.particles === 'high'
+      ? source.particles
+      : DEFAULT_SETTINGS.particles;
+  next.reduceMotion =
+    source.reduceMotion === 'on' || source.reduceMotion === 'off' || source.reduceMotion === 'system'
+      ? source.reduceMotion
+      : DEFAULT_SETTINGS.reduceMotion;
+  return next as unknown as OrbitSettings;
 }
 
 /** Parse one raw localStorage string into settings; a bad payload means defaults. */
@@ -134,34 +137,75 @@ export function saveSettings(settings: OrbitSettings): void {
 }
 
 /**
- * The HUD's manual collapse flag. Persisted on its own key so a collapsed card
- * stays collapsed across reloads and never re-expands on a new event.
+ * The HUD's own two flags. They share one key (`neural-orbit.hud.v1`) and one
+ * object, because they describe the same panel:
+ *
+ *  - `collapsed` — the user folded the card by hand; only a click unfolds it;
+ *  - `pinned`    — the user pinned it open, so `auto` mode stops folding it
+ *    while the Agent is idle.
+ *
+ * v2.0 wrote a bare boolean (`true`) and v2.1 wrote `{ collapsed }`; both are
+ * still read, so an upgrade keeps the panel exactly as the user left it.
  */
-export function loadHudCollapsed(): boolean {
+export interface HudFlags {
+  collapsed: boolean;
+  pinned: boolean;
+}
+
+const HUD_FLAGS_IDLE: HudFlags = { collapsed: false, pinned: false };
+
+function readHudFlags(): HudFlags {
   const store = storage();
-  if (store === undefined) return false;
+  if (store === undefined) return { ...HUD_FLAGS_IDLE };
   try {
     const raw = store.getItem(HUD_KEY);
-    if (raw === null) return false;
+    if (raw === null) return { ...HUD_FLAGS_IDLE };
     const parsed = JSON.parse(raw) as unknown;
-    if (typeof parsed === 'boolean') return parsed;
+    if (typeof parsed === 'boolean') return { collapsed: parsed, pinned: false };
     if (typeof parsed === 'object' && parsed !== null) {
-      return pickBoolean((parsed as { collapsed?: unknown }).collapsed, false);
+      const row = parsed as { collapsed?: unknown; pinned?: unknown };
+      return {
+        collapsed: pickBoolean(row.collapsed, false),
+        pinned: pickBoolean(row.pinned, false),
+      };
     }
-    return false;
+    return { ...HUD_FLAGS_IDLE };
   } catch {
-    return false;
+    return { ...HUD_FLAGS_IDLE };
   }
 }
 
-export function saveHudCollapsed(collapsed: boolean): void {
+/**
+ * Write the pair, but **omit `pinned` when it is false**: a fold-only payload
+ * stays byte-identical to what v2.1 wrote, which is what the persistence test
+ * pins with a strict deep equality.
+ */
+function writeHudFlags(flags: HudFlags): void {
   const store = storage();
   if (store === undefined) return;
+  const payload: { collapsed: boolean; pinned?: boolean } = { collapsed: flags.collapsed };
+  if (flags.pinned) payload.pinned = true;
   try {
-    store.setItem(HUD_KEY, JSON.stringify({ collapsed }));
+    store.setItem(HUD_KEY, JSON.stringify(payload));
   } catch {
-    // Ignore: the flag is a convenience, not data.
+    // Ignore: the flags are a convenience, not data.
   }
+}
+
+export function loadHudCollapsed(): boolean {
+  return readHudFlags().collapsed;
+}
+
+export function loadHudPinned(): boolean {
+  return readHudFlags().pinned;
+}
+
+export function saveHudCollapsed(collapsed: boolean, pinned: boolean = loadHudPinned()): void {
+  writeHudFlags({ collapsed, pinned });
+}
+
+export function saveHudPinned(pinned: boolean, collapsed: boolean = loadHudCollapsed()): void {
+  writeHudFlags({ collapsed, pinned });
 }
 
 export function loadPosition(): LauncherPosition {
@@ -200,8 +244,10 @@ export interface OrbitStoreState {
   visible: boolean;
   position: LauncherPosition;
   fps: number;
-  /** The user folded the always-on card by hand; only a click unfolds it. */
+  /** The user folded the always-on panel by hand; only a click unfolds it. */
   hudCollapsed: boolean;
+  /** The user pinned the panel open: `auto` no longer folds it while idle. */
+  hudPinned: boolean;
 
   setSnapshot: (snapshot: OrbitSnapshot | null) => void;
   setConnection: (connection: OrbitConnection) => void;
@@ -212,6 +258,7 @@ export interface OrbitStoreState {
   setPosition: (position: LauncherPosition) => void;
   setFps: (fps: number) => void;
   setHudCollapsed: (collapsed: boolean) => void;
+  setHudPinned: (pinned: boolean) => void;
 }
 
 export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
@@ -223,6 +270,7 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
   position: loadPosition(),
   fps: 0,
   hudCollapsed: loadHudCollapsed(),
+  hudPinned: loadHudPinned(),
 
   setSnapshot: (snapshot) => {
     const current = get().snapshot;
@@ -256,7 +304,11 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
     set({ fps });
   },
   setHudCollapsed: (collapsed) => {
-    saveHudCollapsed(collapsed);
+    saveHudCollapsed(collapsed, get().hudPinned);
     set({ hudCollapsed: collapsed });
+  },
+  setHudPinned: (pinned) => {
+    saveHudPinned(pinned, get().hudCollapsed);
+    set({ hudPinned: pinned });
   },
 }));

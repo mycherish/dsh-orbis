@@ -74,7 +74,7 @@ function ActivityRow({ row, now }: ActivityRowProps): React.ReactElement {
   const running = row.status === 'running';
 
   return (
-    <li className="no-row">
+    <li className="no-row" data-redacted={row.redacted === true ? 'true' : 'false'}>
       <span className="no-badge" style={cssVars({ '--no-cat': visual.color })} aria-hidden="true">
         {visual.glyph}
       </span>
@@ -84,9 +84,9 @@ function ActivityRow({ row, now }: ActivityRowProps): React.ReactElement {
         </span>
         <span className="no-row-sub">
           <span className="no-row-kind">{visual.kind}</span>
-          {row.safeTarget ? (
-            <span className="no-row-target" title={row.safeTarget}>
-              {row.safeTarget}
+          {visual.target ? (
+            <span className="no-row-target" title={visual.target}>
+              {visual.target}
             </span>
           ) : null}
           {typeof row.duration === 'number' ? (

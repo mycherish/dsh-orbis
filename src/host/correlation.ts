@@ -30,7 +30,7 @@ export interface RunningCall extends CallMeta {
   startedAt: number;
 }
 
-export type SettledStatus = 'success' | 'error' | 'cancelled';
+export type SettledStatus = 'success' | 'failed' | 'cancelled';
 
 export type StartOutcome =
   /** A genuinely new call: create the running row. */

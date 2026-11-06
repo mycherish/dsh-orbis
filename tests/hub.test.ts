@@ -43,7 +43,7 @@ describe('hub fold', () => {
     hub.handleSessionEvent('s1', toolCall(1, 'c1', 'bash', '{"command":"false"}', T0 + 10));
     hub.handleSessionEvent('s1', toolResult('c1', T0 + 20, true));
     const snapshot = hub.snapshot('s1');
-    expect(snapshot.events[0]?.status).toBe('error');
+    expect(snapshot.events[0]?.status).toBe('failed');
     expect(snapshot.agentState).toBe('thinking');
   });
 
@@ -109,12 +109,12 @@ describe('hub fold', () => {
     hub.handleApproval('s1', 'bash');
     let snapshot = hub.snapshot('s1');
     expect(snapshot.agentState).toBe('waiting');
-    expect(snapshot.events[0]?.type).toBe('approval');
+    expect(snapshot.events[0]?.category).toBe('approval');
 
     hub.handleSessionEvent('s1', toolCall(1, 'c1', 'bash', '{"command":"ls"}', T0 + 5));
     snapshot = hub.snapshot('s1');
     expect(snapshot.agentState).toBe('executing');
-    expect(snapshot.events.find((row) => row.type === 'approval')?.status).toBe('success');
+    expect(snapshot.events.find((row) => row.category === 'approval')?.status).toBe('success');
   });
 
   it('bumps version on change and notifies subscribers', async () => {
@@ -205,7 +205,7 @@ describe('hub v2: correlation, streams, approvals, quiet', () => {
     hub.handleSessionEvent('s1', toolResult('slow', T0 + 3, true));
     snapshot = hub.snapshot('s1');
     expect(snapshot.activeTools).toBe(0);
-    expect(snapshot.events.find((row) => row.id === 'slow')?.status).toBe('error');
+    expect(snapshot.events.find((row) => row.id === 'slow')?.status).toBe('failed');
   });
 
   it('expires an orphaned call instead of pinning the Agent to executing', () => {
@@ -247,7 +247,7 @@ describe('hub v2: correlation, streams, approvals, quiet', () => {
       data: { id: 'ap-1', outcome: 'rejected' },
     });
     snapshot = hub.snapshot('s1');
-    expect(snapshot.events[0]?.status).toBe('error');
+    expect(snapshot.events[0]?.status).toBe('failed');
     expect(snapshot.agentState).not.toBe('waiting');
   });
 
@@ -266,9 +266,9 @@ describe('hub v2: correlation, streams, approvals, quiet', () => {
     const { hub } = makeHub();
     const cases: Array<[string, string]> = [
       ['allowed-once', 'success'],
-      ['rejected', 'error'],
+      ['rejected', 'failed'],
       ['cancelled', 'cancelled'],
-      ['unavailable', 'error'],
+      ['unavailable', 'failed'],
     ];
     for (const [outcome, expected] of cases) {
       const id = `ap-${outcome}`;
@@ -317,12 +317,12 @@ describe('hub v2: correlation, streams, approvals, quiet', () => {
     expect(clock.hub.snapshot('s1').agentState).toBe('thinking');
     expect(clock.hub.snapshot('s1').quietLevel).toBe(0);
 
-    clock.advance(12_000);
+    clock.advance(45_000);
     clock.hub.tick();
     const snapshot = clock.hub.snapshot('s1');
     expect(snapshot.agentState).toBe('quiet');
     expect(snapshot.quietLevel).toBe(1);
-    expect(snapshot.silenceMs).toBeGreaterThanOrEqual(10_000);
+    expect(snapshot.silenceMs).toBeGreaterThanOrEqual(30_000);
   });
 
   it('forgets a disposed Session', () => {
@@ -400,5 +400,118 @@ describe('hub v2: notification economics', () => {
     expect(calls).toBeGreaterThanOrEqual(1);
     off();
     hub.dispose();
+  });
+});
+
+describe('hub v2.0: task context', () => {
+  function makeHub(start = T0) {
+    let mono = start;
+    let epoch = start;
+    const hub = new OrbitHub({ now: () => epoch, mono: () => mono });
+    return { hub, advance(ms: number) { mono += ms; epoch += ms; } };
+  }
+
+  it('starts with the honest fallback title and no invented plan', () => {
+    const { hub } = makeHub();
+    const task = hub.snapshot('s1').task;
+    expect(task.taskTitle).toBe('当前任务处理中');
+    expect(task.titleSource).toBe('fallback');
+    expect(task.nextStep).toBeUndefined();
+    expect(task.extraTokens).toBe(0);
+    expect(task.mode).toBe('event-only');
+  });
+
+  it('uses the real session title once the Host has seen one', () => {
+    const { hub } = makeHub();
+    hub.handleSessionEvent('s1', {
+      type: 'session/title',
+      time: T0,
+      data: { title: '审核 RID-000018 物理口出方向', messageSeqs: [1], source: 'first-prompt' },
+    });
+    const task = hub.snapshot('s1').task;
+    expect(task.taskTitle).toBe('审核 RID-000018 物理口出方向');
+    expect(task.titleSource).toBe('session');
+  });
+
+  it('takes the next step only from a real todo/write plan', () => {
+    const { hub } = makeHub();
+    hub.handleSessionEvent('s1', {
+      type: 'todo/write',
+      time: T0,
+      data: {
+        todos: [
+          { content: '复现端口不通', status: 'completed' },
+          { content: '查询 egress VNI 映射', status: 'in_progress' },
+          { content: '补充回归用例', status: 'pending' },
+        ],
+      },
+    });
+    const task = hub.snapshot('s1').task;
+    // The completed item is skipped: the next step is the first unfinished one.
+    expect(task.nextStep).toBe('查询 egress VNI 映射');
+  });
+
+  it('infers the phase from the newest running activity', () => {
+    const { hub } = makeHub();
+    hub.handleSessionEvent('s1', toolCall(1, 'c1', 'read', '{"file_path":"/x/a.md"}', T0));
+    expect(hub.snapshot('s1').task.phase).toBe('reading');
+
+    hub.handleSessionEvent('s1', toolCall(2, 'c2', 'edit', '{"file_path":"/x/a.md"}', T0 + 10));
+    expect(hub.snapshot('s1').task.phase).toBe('editing');
+
+    hub.handleSessionEvent('s1', toolResult('c1', T0 + 20));
+    hub.handleSessionEvent('s1', toolResult('c2', T0 + 30));
+    // Nothing running: the recent window still says "editing".
+    expect(hub.snapshot('s1').task.phase).toBe('editing');
+  });
+
+  it('reports a working approval as the waiting phase', () => {
+    const { hub } = makeHub();
+    hub.handleSessionEvent('s1', { type: 'approval/asked', time: T0, data: { id: 'ap1', toolName: 'bash' } });
+    const task = hub.snapshot('s1').task;
+    expect(task.phase).toBe('waiting');
+    expect(task.phaseLabel).toBe('等待审批');
+    expect(task.silence.label).toContain('审批');
+  });
+
+  it('carries a silence sentence that escalates with real elapsed time', () => {
+    const clock = makeHub();
+    clock.hub.handleSessionEvent('s1', { type: 'step/start', time: T0, data: { turn: 1, step: 1 } });
+    expect(clock.hub.snapshot('s1').task.silence.level).toBe(0);
+
+    clock.advance(45_000);
+    const level1 = clock.hub.snapshot('s1').task.silence;
+    expect(level1.level).toBe(1);
+    expect(level1.label).toContain('45 秒');
+
+    clock.advance(150_000);
+    const level3 = clock.hub.snapshot('s1').task.silence;
+    expect(level3.level).toBe(3);
+    expect(level3.label).toContain('建议检查任务状态');
+  });
+
+  it('counts what it observed, never more', () => {
+    const { hub } = makeHub();
+    hub.handleSessionEvent('s1', toolCall(1, 'c1', 'read', '{}', T0));
+    hub.handleSessionEvent('s1', toolCall(2, 'c2', 'bash', '{}', T0 + 1));
+    hub.handleSessionEvent('s1', toolResult('c1', T0 + 2));
+    const task = hub.snapshot('s1').task;
+    expect(task.observedActivityCount).toBe(2);
+    expect(task.toolCallCount).toBe(2);
+    expect(task.completedCount).toBe(1);
+    expect(task.activeActivities).toHaveLength(1);
+    expect(task.recentActivities).toHaveLength(2);
+    expect(task.currentAction).toBe('执行命令');
+  });
+
+  it('keeps the HUD payload free of raw content', () => {
+    const { hub } = makeHub();
+    hub.handleSessionEvent('s1', toolCall(1, 'c1', 'bash', '{"command":"cat /etc/passwd"}', T0));
+    hub.handleSessionEvent('s1', toolCall(2, 'c2', 'read', '{"file_path":"/Users/alice/.env"}', T0 + 1));
+    const json = JSON.stringify(hub.snapshot('s1'));
+    expect(json).not.toContain('passwd');
+    expect(json).not.toContain('/Users');
+    expect(json).not.toContain('.env');
+    expect(json).toContain('读取敏感配置文件');
   });
 });

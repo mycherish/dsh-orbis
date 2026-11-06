@@ -1,11 +1,10 @@
 /**
  * Per-Session orbit state: the fold from DSH events to `OrbitSnapshot`.
  *
- * One `OrbitHub` lives for the lifetime of the plugin. It keeps a small LRU of
- * Session records (a Session's state never mixes with another's), normalizes
- * each DSH event through `normalize.ts`, correlates tool calls by `callId`,
- * drives the eleven-state machine, and notifies subscribers so the SSE route
- * can push a fresh snapshot.
+ * One `OrbitHub` lives for the lifetime of the plugin. Pipeline (spec §3):
+ *
+ *   DSH events → normalizer → correlation → state machine
+ *              → aggregator → phase inference → silence → Task Context
  *
  * Two clocks, on purpose:
  *  - `now()` is the wall clock; it stamps activity rows for humans.
@@ -23,6 +22,7 @@ import {
   type OrbitMetrics,
   type OrbitSnapshot,
 } from '../shared/protocol';
+import type { OrbitTaskContext } from '../shared/task-context-types';
 import { CallRegistry, type SettledStatus } from './correlation';
 import {
   applyEvent,
@@ -36,13 +36,19 @@ import {
   type TurnEndKind,
 } from './state-machine';
 import {
+  abandonActivity,
   approvalActivity,
   errorActivity,
   retryActivity,
   settledActivity,
   toolActivity,
-} from './normalize';
-import { monotonicNow, type QuietLevel } from './quiet';
+} from './activity/normalizer';
+import {
+  detectSilence,
+  monotonicNow,
+  type SilenceInput,
+} from './context/silence-detector';
+import { buildTaskContext, emptyTaskContext } from './context/task-context-engine';
 import { phaseOfSignal, streamSignalOf } from './stream';
 
 /** Structural view of a DSH `SessionEvent`; only the fields we read. */
@@ -65,7 +71,7 @@ export interface HubOptions {
   now?: () => number;
   /** Monotonic clock for silence detection; defaults to `now`. */
   mono?: () => number;
-  /** An open call older than this is settled as cancelled. */
+  /** An open call older than this is settled as unknown. */
   callTimeoutMs?: number;
   /** Coalescing window for transient stream notifications. */
   streamNotifyMs?: number;
@@ -79,7 +85,11 @@ interface SessionRecord {
   calls: CallRegistry;
   metrics: OrbitMetrics;
   version: number;
-  quietLevel: QuietLevel;
+  quietLevel: 0 | 1 | 2 | 3;
+  /** From `session/title`; undefined until the Host has seen one. */
+  title?: string;
+  /** Unfinished items from the newest `todo/write`, in the Agent's order. */
+  plan: string[];
   /** Wall-clock instant of the last change, used for LRU order. */
   updatedAt: number;
 }
@@ -114,7 +124,7 @@ function turnEndKindOf(reason: string | undefined): TurnEndKind {
 
 /** How open calls of a turn that ended this way should be settled. */
 function drainStatusOf(reason: TurnEndKind): SettledStatus {
-  if (reason === 'error' || reason === 'blocked') return 'error';
+  if (reason === 'error' || reason === 'blocked') return 'failed';
   if (reason === 'interrupted' || reason === 'aborted') return 'cancelled';
   return 'success';
 }
@@ -156,6 +166,7 @@ export class OrbitHub {
       metrics: { turns: 0, steps: 0, tools: 0, files: 0, approvals: 0, retries: 0, startedAt: now },
       version: 1,
       quietLevel: 0,
+      plan: [],
       updatedAt: now,
     };
     this.records.set(sessionId, record);
@@ -185,9 +196,8 @@ export class OrbitHub {
    * Recompute the published state after a mutation and queue a notification.
    *
    * `stream` uses the throttled channel: transient frames arrive dozens of
-   * times per second and each one still advances the version (so a Client that
-   * polls `/state` sees the truth), but subscribers are only told at most once
-   * per window.
+   * times per second and each one still advances the version, but subscribers
+   * are only told at most once per window.
    */
   private touch(record: SessionRecord, at: number, channel: 'event' | 'stream' = 'event'): void {
     record.machine.agentState = computeState(record.machine, at);
@@ -195,8 +205,6 @@ export class OrbitHub {
     record.machine.updatedAt = at;
     record.updatedAt = this.clock();
     this.lastTouched = record.sessionId;
-    // Every observed event can change a row, a counter or a timestamp even when
-    // the headline state stays the same, so the version always advances.
     record.version += 1;
     if (channel === 'stream') this.queueStreamNotify();
     else this.queueNotify();
@@ -211,11 +219,6 @@ export class OrbitHub {
     });
   }
 
-  /**
-   * Transient frames can arrive dozens of times per second; the state machine
-   * applies every one of them, but subscribers are told at most once per
-   * window, which keeps the SSE stream and the Client cheap during streaming.
-   */
   private queueStreamNotify(): void {
     if (this.streamTimer !== null) return;
     this.streamTimer = setTimeout(() => {
@@ -254,7 +257,7 @@ export class OrbitHub {
     if (index < 0) return undefined;
     const current = record.activities[index];
     if (current === undefined) return undefined;
-    if (current.status !== 'running' && current.status !== 'waiting') return undefined;
+    if (current.status !== 'running' && current.status !== 'unknown') return undefined;
     const settled = settledActivity(current, status, at);
     record.activities[index] = settled;
     return settled;
@@ -263,6 +266,16 @@ export class OrbitHub {
   private nextId(prefix: string): string {
     this.sequence += 1;
     return `${prefix}:${this.sequence}`;
+  }
+
+  /** Drop columns of a stale response row once the model moves on. */
+  private closeStreamRows(record: SessionRecord, at: number): void {
+    for (let index = 0; index < record.activities.length; index += 1) {
+      const row = record.activities[index];
+      if (row === undefined) continue;
+      if (row.source !== 'stream' || row.status !== 'running') continue;
+      record.activities[index] = settledActivity(row, 'success', at);
+    }
   }
 
   // ------------------------------------------------------------------ folds
@@ -276,6 +289,32 @@ export class OrbitHub {
     const data = event.data;
 
     switch (event.type) {
+      case 'session/title': {
+        const record = this.ensure(sessionId);
+        const title = asString(recordOf(data, 'title'));
+        if (title === undefined) return;
+        record.title = title;
+        this.touch(record, at);
+        return;
+      }
+
+      case 'todo/write': {
+        const record = this.ensure(sessionId);
+        const todos = recordOf(data, 'todos');
+        if (!Array.isArray(todos)) return;
+        // Only unfinished items, in the Agent's own order; the first one is the
+        // "next step". Nothing is derived, nothing is written by us.
+        record.plan = todos
+          .map((todo) => {
+            const content = asString(recordOf(todo, 'content'));
+            const status = asString(recordOf(todo, 'status'));
+            return status === 'completed' || content === undefined ? undefined : content;
+          })
+          .filter((item): item is string => item !== undefined);
+        this.touch(record, at);
+        return;
+      }
+
       case 'turn/start': {
         const record = this.ensure(sessionId);
         record.metrics.turns += 1;
@@ -287,6 +326,7 @@ export class OrbitHub {
       case 'step/start': {
         const record = this.ensure(sessionId);
         record.metrics.steps += 1;
+        this.closeStreamRows(record, epoch);
         applyEvent(record.machine, {
           kind: 'step-start',
           turn: asNumber(recordOf(data, 'turn')),
@@ -313,23 +353,21 @@ export class OrbitHub {
 
         const row = toolActivity({ id: callId, sessionId, rawName: name, argumentsJson, at: epoch, turn, step });
         record.metrics.tools += 1;
-        if (row.type === 'file') record.metrics.files += 1;
-        // The call knows its Turn/Step even when no `step/start` was observed.
+        if (row.fileKind !== undefined) record.metrics.files += 1;
         if (turn !== undefined) record.machine.turn = turn;
         if (step !== undefined) record.machine.step = step;
 
         if (outcome.kind === 'pre-settled') {
-          // The result was already observed; the row opens settled and never
-          // counts as an active tool.
           this.pushActivity(record, settledActivity(row, outcome.status, epoch));
           this.touch(record, at);
           return;
         }
 
+        this.closeStreamRows(record, epoch);
         this.pushActivity(record, row);
         // An approval waiting on this call resolves the moment the tool runs.
         for (const activity of record.activities) {
-          if (activity.type === 'approval' && activity.status === 'waiting') {
+          if (activity.category === 'approval' && activity.status === 'running') {
             this.settleRow(record, activity.id, 'success', epoch);
           }
         }
@@ -349,13 +387,10 @@ export class OrbitHub {
         const status: SettledStatus = failed
           ? errorCode === 'ABORTED' || errorCode === 'CANCELLED'
             ? 'cancelled'
-            : 'error'
+            : 'failed'
           : 'success';
         const call = record.calls.settle(callId, status);
-        if (call === undefined) {
-          // Unknown or duplicate: remembered by the registry for a late call.
-          return;
-        }
+        if (call === undefined) return;
         const resultTurn = asNumber(recordOf(data, 'turn'));
         const resultStep = asNumber(recordOf(data, 'step'));
         if (resultTurn !== undefined) record.machine.turn = resultTurn;
@@ -374,10 +409,8 @@ export class OrbitHub {
         const turn = asNumber(recordOf(data, 'turn'));
         const step = asNumber(recordOf(data, 'step'));
         record.metrics.approvals += 1;
-        // A waterfall bridge row exists for this ask: adopt it instead of
-        // showing the same decision twice.
         const bridgeIndex = record.activities.findIndex(
-          (row) => row.type === 'approval' && row.status === 'waiting' && row.id.startsWith('bridge:'),
+          (row) => row.category === 'approval' && row.status === 'running' && row.id.startsWith('bridge:'),
         );
         if (bridgeIndex >= 0) {
           const bridge = record.activities[bridgeIndex];
@@ -385,12 +418,8 @@ export class OrbitHub {
             record.activities[bridgeIndex] = {
               ...bridge,
               id: approvalId,
-              label: 'approval',
               ...(turn === undefined ? {} : { turn }),
               ...(step === undefined ? {} : { step }),
-              ...(bridge.safeTarget === undefined && toolName !== undefined
-                ? { safeTarget: toolName.slice(0, 40) }
-                : {}),
             };
           }
         } else {
@@ -428,7 +457,11 @@ export class OrbitHub {
 
       case 'assistant/message': {
         const record = this.ensure(sessionId);
-        if (recordOf(data, 'interrupted') !== true) return;
+        this.closeStreamRows(record, epoch);
+        if (recordOf(data, 'interrupted') !== true) {
+          this.touch(record, at);
+          return;
+        }
         applyEvent(record.machine, { kind: 'interrupted', at });
         this.touch(record, at);
         return;
@@ -437,9 +470,11 @@ export class OrbitHub {
       case 'turn/end': {
         const record = this.ensure(sessionId);
         const reason = turnEndKindOf(asString(recordOf(recordOf(data, 'reason'), 'kind')));
-        for (const call of record.calls.drain(drainStatusOf(reason))) {
-          this.settleRow(record, call.callId, drainStatusOf(reason), epoch);
+        const drained = drainStatusOf(reason);
+        for (const call of record.calls.drain(drained)) {
+          this.settleRow(record, call.callId, drained, epoch);
         }
+        this.closeStreamRows(record, epoch);
         applyEvent(record.machine, { kind: 'turn-end', reason, at });
         this.touch(record, at);
         return;
@@ -456,11 +491,8 @@ export class OrbitHub {
         return 'success';
       case 'cancelled':
         return 'cancelled';
-      case 'rejected':
-      case 'unavailable':
-        return 'error';
       default:
-        return 'error';
+        return 'failed';
     }
   }
 
@@ -475,7 +507,6 @@ export class OrbitHub {
     const signal = streamSignalOf(frame);
     if (signal === undefined) return;
     const record = this.ensure(sessionId);
-    // A frame from an already-finished turn must not resurrect `running`.
     if (signal.turn !== undefined && record.machine.turn !== undefined && signal.turn < record.machine.turn) {
       return;
     }
@@ -514,8 +545,7 @@ export class OrbitHub {
     const epoch = this.clock();
     const at = this.mono();
     const id = callId === undefined ? this.nextId('bridge') : `bridge:${callId}`;
-    const existing = record.activities.find((row) => row.id === id);
-    if (existing === undefined) {
+    if (!record.activities.some((row) => row.id === id)) {
       this.pushActivity(record, approvalActivity(epoch, id, sessionId, toolName));
     }
     applyEvent(record.machine, { kind: 'approval-asked', id, at });
@@ -527,8 +557,8 @@ export class OrbitHub {
     const record = this.ensure(sessionId);
     const epoch = this.clock();
     const at = this.mono();
-    for (const call of record.calls.drain('error')) {
-      this.settleRow(record, call.callId, 'error', epoch);
+    for (const call of record.calls.drain('failed')) {
+      this.settleRow(record, call.callId, 'failed', epoch);
     }
     this.pushActivity(record, errorActivity(epoch, this.nextId('error'), sessionId, code));
     applyEvent(record.machine, { kind: 'error', at });
@@ -541,13 +571,12 @@ export class OrbitHub {
     const record = this.records.get(sessionId);
     if (record === undefined) return;
     record.calls.clear();
-    record.calls = new CallRegistry();
     this.records.delete(sessionId);
     if (this.lastTouched === sessionId) this.lastTouched = undefined;
     this.queueNotify();
   }
 
-  /** Expire held states and stale calls. Cheap when nothing is pending. */
+  /** Expire held states, silence buckets and stale calls. */
   tick(): void {
     const at = this.mono();
     const epoch = this.clock();
@@ -592,6 +621,37 @@ export class OrbitHub {
     return this.sessionIds()[0];
   }
 
+  /**
+   * Build the Task Context for one record.
+   *
+   * Exposed separately so a Client can be served a context without a full
+   * snapshot (diagnostics), and so tests can assert on it directly.
+   */
+  taskContext(sessionId?: string | null): OrbitTaskContext {
+    const resolved = this.resolveSession(sessionId);
+    const record = resolved === undefined ? undefined : this.records.get(resolved);
+    if (record === undefined) return emptyTaskContext(this.clock());
+
+    const at = this.mono();
+    const silenceInput: SilenceInput = {
+      ms: silenceOf(record.machine, at),
+      activeTools: record.machine.openTools.length,
+      waitingApproval: record.machine.approvalId !== null,
+      responding: record.machine.phase === 'responding',
+      turnOpen: record.machine.running,
+    };
+    return buildTaskContext({
+      rows: record.activities,
+      startedAt: record.metrics.startedAt,
+      ...(record.title === undefined ? {} : { sessionTitle: record.title }),
+      plan: record.plan,
+      turnOpen: record.machine.running,
+      responding: record.machine.phase === 'responding',
+      waitingApproval: record.machine.approvalId !== null,
+      silence: detectSilence(silenceInput),
+    });
+  }
+
   snapshot(requested?: string | null): OrbitSnapshot {
     const sessionId = this.resolveSession(requested);
     const record = sessionId === undefined ? undefined : this.records.get(sessionId);
@@ -604,6 +664,7 @@ export class OrbitHub {
         silenceMs: 0,
         quietLevel: 0,
         events: [],
+        task: emptyTaskContext(now),
         updatedAt: now,
         metrics: { turns: 0, steps: 0, tools: 0, files: 0, approvals: 0, retries: 0, startedAt: now },
       };
@@ -621,6 +682,7 @@ export class OrbitHub {
       silenceMs: Math.round(silenceOf(machine, at)),
       quietLevel: quietLevelFor(machine, at),
       events: record.activities.slice(0, this.maxActivities),
+      task: this.taskContext(record.sessionId),
       updatedAt: record.updatedAt,
       metrics: { ...record.metrics },
     };

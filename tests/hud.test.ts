@@ -1,25 +1,47 @@
 /**
- * The always-on card's rule set, tested as pure functions: copy for all eleven
- * states, the silence wording, the "no raw arguments" guarantee of the detail
- * line, the progress weights and the auto-expand / manual-collapse policy.
+ * The always-on HUD's rule set, tested as pure functions.
  *
- * No jsdom, no React: `hud/progress.ts` owns every decision the card makes.
+ * No jsdom, no React, no renderer: `src/client/hud/progress.ts` owns every
+ * decision the panel makes — the eleven status words, the activity icon and
+ * colour vocabulary, both clock formatters, the two runtime pills, the
+ * expand / fold policy, the silence gate and the footer arithmetic — so all of
+ * it is assertable without a DOM.
  */
 import { describe, expect, it } from 'vitest';
 import {
-  HUD_STATE_TITLE,
-  formatSilence,
+  ACTIVITY_ICON,
+  HUD_STATUS_CHIP,
+  RUNTIME_MODE_LABEL,
+  activityColor,
+  activityIcon,
+  activityStatusLabel,
+  activityText,
+  currentStatusText,
+  footerStats,
+  formatClock,
+  formatElapsed,
+  hudActivityRows,
   hudCardMode,
-  hudDodgeOffset,
-  hudDetail,
-  hudProgress,
-  hudTitle,
+  hudChipText,
+  hudStatusChip,
   hudTone,
   isActiveState,
   isSettledState,
+  nextStepLabel,
+  phaseTextOf,
+  runtimePills,
+  shouldShowSilence,
+  taskElapsedMs,
+  taskTitleOf,
   type HudTone,
 } from '../src/client/hud/progress';
-import type { OrbitActivity, OrbitAgentState, OrbitSnapshot } from '../src/shared/protocol';
+import { ORBIT_PALETTE } from '../src/client/contracts';
+import type { OrbitActivity, OrbitAgentState, OrbitActivityStatus } from '../src/shared/protocol';
+import {
+  SENSITIVE_TARGET_LABEL,
+  TASK_TITLE_FALLBACK,
+  type OrbitTaskContext,
+} from '../src/shared/task-context-types';
 
 const STATES: OrbitAgentState[] = [
   'idle',
@@ -35,166 +57,72 @@ const STATES: OrbitAgentState[] = [
   'error',
 ];
 
+const STATUSES: OrbitActivityStatus[] = ['running', 'success', 'failed', 'cancelled', 'unknown'];
+
+/** 2026-11-06 14:02:33 local time, built from local parts so the TZ cannot skew it. */
+const T_1402 = new Date(2026, 10, 6, 14, 2, 33).getTime();
+
 function activity(overrides: Partial<OrbitActivity> = {}): OrbitActivity {
   return {
     id: 'a1',
     sessionId: 's1',
     turn: 1,
     step: 2,
-    type: 'tool',
-    category: 'file-read',
-    label: 'read-file',
-    status: 'running',
-    startedAt: 1000,
+    category: 'file_read',
+    label: '读取项目文件',
+    status: 'success',
+    startedAt: T_1402,
+    source: 'tool',
+    confidence: 'high',
     ...overrides,
   };
 }
 
-function snapshot(overrides: Partial<OrbitSnapshot> = {}): OrbitSnapshot {
+function task(overrides: Partial<OrbitTaskContext> = {}): OrbitTaskContext {
   return {
-    version: 2,
-    sessionId: 's1',
-    agentState: 'idle',
-    activeTools: 0,
-    silenceMs: 0,
-    quietLevel: 0,
-    events: [],
-    updatedAt: 1,
-    metrics: { turns: 1, steps: 3, tools: 2, files: 1, approvals: 0, retries: 0, startedAt: 0 },
+    taskTitle: '联调 Egress VNI API',
+    titleSource: 'session',
+    phase: 'querying',
+    phaseLabel: '查询接口',
+    currentAction: '正在查询 Egress API',
+    recentActivities: [],
+    activeActivities: [],
+    completedCount: 0,
+    failedCount: 0,
+    observedActivityCount: 0,
+    toolCallCount: 0,
+    startedAt: T_1402,
+    lastActivityAt: T_1402 + 942_000,
+    silence: { ms: 0, level: 0, label: '正在执行工具调用。' },
+    confidence: 'high',
+    extraTokens: 0,
+    mode: 'event-only',
     ...overrides,
   };
 }
 
-describe('hudTitle — 11 states', () => {
-  it('has a non-empty Chinese subject for every state', () => {
+describe('hudStatusChip — the eleven state words', () => {
+  it('has a non-empty Chinese word for every state', () => {
     for (const state of STATES) {
-      const title = hudTitle(snapshot({ agentState: state }), 'open');
-      expect(title.trim().length, state).toBeGreaterThan(0);
-      expect(title, state).toBe(HUD_STATE_TITLE[state]);
+      const chip = hudStatusChip(state);
+      expect(chip.trim().length, state).toBeGreaterThan(0);
+      expect(chip, state).not.toContain('undefined');
+      expect(chip, state).toBe(HUD_STATUS_CHIP[state]);
     }
   });
 
-  it('keeps the eleven subjects mutually distinct', () => {
-    const titles = STATES.map((state) => hudTitle(snapshot({ agentState: state }), 'open'));
-    expect(new Set(titles).size).toBe(STATES.length);
-    expect(new Set(Object.values(HUD_STATE_TITLE)).size).toBe(STATES.length);
+  it('keeps the eleven words mutually distinct', () => {
+    const chips = STATES.map((state) => hudStatusChip(state));
+    expect(new Set(chips).size).toBe(STATES.length);
+    expect(new Set(Object.values(HUD_STATUS_CHIP)).size).toBe(STATES.length);
   });
 
-  it('names the drop in the connection instead of lying about the state', () => {
-    const live = hudTitle(snapshot({ agentState: 'executing' }), 'open');
-    expect(hudTitle(snapshot({ agentState: 'executing' }), 'reconnecting')).toContain(live);
-    expect(hudTitle(snapshot({ agentState: 'executing' }), 'reconnecting')).not.toBe(live);
-    expect(hudTitle(snapshot({ agentState: 'executing' }), 'closed')).toContain(live);
-    expect(hudTitle(snapshot({ agentState: 'executing' }), 'closed')).not.toBe(live);
-  });
-});
-
-describe('hudDetail', () => {
-  it('puts the silence duration on the quiet line', () => {
-    const detail = hudDetail(snapshot({ agentState: 'quiet', silenceMs: 23_000, quietLevel: 1 }));
-    expect(detail).toBe('已静默 23 秒');
-    expect(detail).toContain('23');
-    expect(detail).toContain('秒');
-  });
-
-  it('switches to minutes once the silence passes a minute', () => {
-    expect(hudDetail(snapshot({ agentState: 'quiet', silenceMs: 60_000, quietLevel: 3 }))).toBe('已静默 1 分');
-    expect(hudDetail(snapshot({ agentState: 'quiet', silenceMs: 72_000, quietLevel: 3 }))).toBe('已静默 1 分 12 秒');
-  });
-
-  it('builds the executing line from label + safeTarget only', () => {
-    const leaking = {
-      ...activity({ label: '编辑文件', safeTarget: 'report.md', category: 'file-write', fileKind: 'edit' }),
-      // Host-forbidden fields, present anyway: they must never reach the card.
-      rawArguments: '{"path":"/Users/someone/secret.ts","command":"rm -rf /"}',
-      rawCommand: 'rm -rf /',
-      fileContent: 'BEGIN PRIVATE KEY',
-    } as unknown as OrbitActivity;
-    const detail = hudDetail(snapshot({ agentState: 'executing', activeTools: 1, events: [leaking] }));
-    expect(detail).toBe('编辑文件 · report.md');
-    expect(detail).not.toContain('rm -rf');
-    expect(detail).not.toContain('/Users');
-    expect(detail).not.toContain('PRIVATE KEY');
-    expect(detail).not.toContain('{');
-  });
-
-  it('stays on the label when there is no safe target', () => {
-    const detail = hudDetail(snapshot({ agentState: 'executing', activeTools: 1, events: [activity({ label: 'run-shell' })] }));
-    expect(detail).toBe('run-shell');
-  });
-
-  it('falls back to a count when no activity row has arrived yet', () => {
-    const detail = hudDetail(snapshot({ agentState: 'executing', activeTools: 3, events: [] }));
-    expect(detail).toContain('3');
-    expect(detail).not.toContain('undefined');
-  });
-
-  it('never returns an empty or undefined-laced line for any state', () => {
-    for (const state of STATES) {
-      const detail = hudDetail(snapshot({ agentState: state, events: [] }));
-      expect(detail.trim().length, state).toBeGreaterThan(0);
-      expect(detail, state).not.toContain('undefined');
-      expect(detail, state).not.toContain('null');
-    }
-  });
-
-  it('shows the turn/step counters while it works', () => {
-    expect(hudDetail(snapshot({ agentState: 'thinking', turn: 2, step: 5 }))).toContain('第 2 轮');
-    expect(hudDetail(snapshot({ agentState: 'thinking', turn: 2, step: 5 }))).toContain('第 5 步');
-  });
-});
-
-describe('formatSilence', () => {
-  it('formats seconds, minutes and bad input', () => {
-    expect(formatSilence(0)).toBe('已静默 0 秒');
-    expect(formatSilence(5_000)).toBe('已静默 5 秒');
-    expect(formatSilence(60_000)).toBe('已静默 1 分');
-    expect(formatSilence(125_000)).toBe('已静默 2 分 5 秒');
-    expect(formatSilence(-1_000)).toBe('已静默 0 秒');
-    expect(formatSilence(Number.NaN)).toBe('已静默 0 秒');
-  });
-});
-
-describe('hudProgress', () => {
-  it('pins the boundaries', () => {
-    expect(hudProgress(snapshot({ agentState: 'idle' }))).toBe(0);
-    expect(hudProgress(snapshot({ agentState: 'completed' }))).toBe(1);
-    expect(hudProgress(snapshot({ agentState: 'error' }))).toBe(1);
-    expect(hudProgress(snapshot({ agentState: 'interrupted' }))).toBe(1);
-  });
-
-  it('keeps the working states inside 0.3–0.85', () => {
-    for (const state of ['executing', 'waiting', 'responding'] as OrbitAgentState[]) {
-      const value = hudProgress(snapshot({ agentState: state, activeTools: 2 }));
-      expect(value, state).toBeGreaterThanOrEqual(0.3);
-      expect(value, state).toBeLessThanOrEqual(0.85);
-    }
-  });
-
-  it('is monotonic in real work, never in elapsed time', () => {
-    const chain = [
-      hudProgress(snapshot({ agentState: 'idle' })),
-      hudProgress(snapshot({ agentState: 'starting' })),
-      hudProgress(snapshot({ agentState: 'thinking' })),
-      hudProgress(snapshot({ agentState: 'preparing' })),
-      hudProgress(snapshot({ agentState: 'executing', activeTools: 1 })),
-      hudProgress(snapshot({ agentState: 'executing', activeTools: 3 })),
-      hudProgress(snapshot({ agentState: 'responding' })),
-      hudProgress(snapshot({ agentState: 'waiting' })),
-      hudProgress(snapshot({ agentState: 'completed' })),
-    ];
-    for (let i = 1; i < chain.length; i += 1) {
-      expect(chain[i], `step ${i}`).toBeGreaterThanOrEqual(chain[i - 1] as number);
-    }
-    // More tools in flight cannot lower the bar; it saturates instead.
-    expect(hudProgress(snapshot({ agentState: 'executing', activeTools: 12 }))).toBeLessThanOrEqual(0.85);
-  });
-
-  it('does not let silence fake progress', () => {
-    const levels = ([0, 1, 2, 3] as const).map((quietLevel) =>
-      hudProgress(snapshot({ agentState: 'quiet', quietLevel, silenceMs: quietLevel * 30_000 })));
-    expect(new Set(levels).size).toBe(1);
-    expect(levels[0]).toBeLessThan(0.3);
+  it('names a dropped connection instead of hiding it', () => {
+    const live = hudChipText('executing', 'open');
+    expect(hudChipText('executing', 'reconnecting')).toContain(live);
+    expect(hudChipText('executing', 'reconnecting')).not.toBe(live);
+    expect(hudChipText('executing', 'closed')).toContain(live);
+    expect(hudChipText('executing', 'closed')).not.toBe(live);
   });
 });
 
@@ -221,7 +149,164 @@ describe('hudTone', () => {
   });
 });
 
-describe('hudCardMode — auto expand / manual collapse', () => {
+describe('activityIcon — five outcomes', () => {
+  it('gives every status a one-character glyph', () => {
+    for (const status of STATUSES) {
+      const glyph = activityIcon(status);
+      expect(glyph.length, status).toBe(1);
+      expect(glyph.trim().length, status).toBeGreaterThan(0);
+      expect(glyph, status).toBe(ACTIVITY_ICON[status]);
+    }
+  });
+
+  it('pins the four spec glyphs and keeps all five distinct', () => {
+    expect(activityIcon('success')).toBe('✓');
+    expect(activityIcon('running')).toBe('◉');
+    expect(activityIcon('failed')).toBe('✕');
+    expect(activityIcon('cancelled')).toBe('…');
+    expect(new Set(STATUSES.map((status) => activityIcon(status))).size).toBe(STATUSES.length);
+  });
+
+  it('labels every status, never with a placeholder', () => {
+    for (const status of STATUSES) {
+      expect(activityStatusLabel(status).trim().length, status).toBeGreaterThan(0);
+    }
+    expect(activityStatusLabel('running')).toBe('进行中');
+  });
+});
+
+describe('activityColor', () => {
+  it('follows the spec colour roles', () => {
+    // 绿 = 成功，蓝 = 执行中，紫 = 模型处理，黄 = 等待审批，红 = 失败
+    expect(activityColor('file_read', 'success')).toBe(ORBIT_PALETTE.success);
+    expect(activityColor('command', 'running')).toBe(ORBIT_PALETTE.blue);
+    expect(activityColor('reasoning', 'running')).toBe(ORBIT_PALETTE.purple);
+    expect(activityColor('approval', 'running')).toBe(ORBIT_PALETTE.warning);
+    expect(activityColor('command', 'failed')).toBe(ORBIT_PALETTE.error);
+  });
+
+  it('lets an outcome win over its category', () => {
+    expect(activityColor('reasoning', 'failed')).toBe(ORBIT_PALETTE.error);
+    expect(activityColor('approval', 'failed')).toBe(ORBIT_PALETTE.error);
+    expect(activityColor('approval', 'cancelled')).toBe(ORBIT_PALETTE.labelDim);
+  });
+});
+
+describe('activityText — no leaks', () => {
+  it('joins the safe label and the whitelisted target', () => {
+    expect(activityText(activity({ label: '修改文件', safeTarget: 'report.md' }))).toBe(
+      '修改文件 · report.md',
+    );
+  });
+
+  it('stays on the label when there is no safe target', () => {
+    expect(activityText(activity({ label: '执行命令' }))).toBe('执行命令');
+  });
+
+  it('collapses a masked row to one fixed sentence', () => {
+    const masked = activity({ label: '读取项目文件', redacted: true, safeTarget: 'a1b2c3…' });
+    expect(activityText(masked)).toBe(SENSITIVE_TARGET_LABEL);
+    // No duplicated copy, and the partial name the Host masked never resurfaces.
+    expect(activityText(masked).match(/读取敏感配置文件/g)?.length).toBe(1);
+    expect(activityText(masked)).not.toContain('a1b2c3');
+  });
+
+  it('falls back to the category word for an empty label', () => {
+    expect(activityText(activity({ label: '   ' }))).toBe('读取项目文件');
+  });
+
+  it('ignores fields the wire forbids', () => {
+    const leaking = {
+      ...activity({ label: '修改文件', safeTarget: 'report.md' }),
+      rawArguments: '{"path":"/Users/someone/secret.ts","command":"rm -rf /"}',
+      rawCommand: 'rm -rf /',
+      fileContent: 'BEGIN PRIVATE KEY',
+    } as unknown as OrbitActivity;
+    const text = activityText(leaking);
+    expect(text).toBe('修改文件 · report.md');
+    expect(text).not.toContain('rm -rf');
+    expect(text).not.toContain('/Users');
+    expect(text).not.toContain('PRIVATE KEY');
+  });
+});
+
+describe('formatClock — pure', () => {
+  it('formats a pinned instant as HH:MM', () => {
+    expect(formatClock(T_1402)).toBe('14:02');
+    expect(formatClock(new Date(2026, 0, 1, 9, 5, 59).getTime())).toBe('09:05');
+    expect(formatClock(new Date(2026, 0, 1, 0, 0, 0).getTime())).toBe('00:00');
+  });
+
+  it('is a pure function of its argument', () => {
+    const first = formatClock(T_1402);
+    const second = formatClock(T_1402);
+    expect(first).toBe(second);
+    // Same epoch a minute later differs, so the value really comes from the input.
+    expect(formatClock(T_1402 + 60_000)).toBe('14:03');
+  });
+
+  it('degrades instead of throwing on a bad instant', () => {
+    expect(formatClock(Number.NaN)).toBe('--:--');
+    expect(formatClock(Number.POSITIVE_INFINITY)).toBe('--:--');
+  });
+});
+
+describe('formatElapsed — boundaries', () => {
+  it('shows seconds below a minute', () => {
+    expect(formatElapsed(0)).toBe('0 秒');
+    expect(formatElapsed(999)).toBe('0 秒');
+    expect(formatElapsed(1_000)).toBe('1 秒');
+    expect(formatElapsed(59_999)).toBe('59 秒');
+  });
+
+  it('shows minutes and seconds below an hour', () => {
+    expect(formatElapsed(60_000)).toBe('1 分');
+    expect(formatElapsed(942_000)).toBe('15 分 42 秒');
+    expect(formatElapsed(3_599_000)).toBe('59 分 59 秒');
+  });
+
+  it('drops the seconds above an hour, zero-padding the minutes', () => {
+    expect(formatElapsed(3_600_000)).toBe('1 小时 00 分');
+    expect(formatElapsed(3_780_000)).toBe('1 小时 03 分');
+    expect(formatElapsed(25_920_000)).toBe('7 小时 12 分');
+  });
+
+  it('clamps bad input to zero instead of printing negatives', () => {
+    expect(formatElapsed(-1)).toBe('0 秒');
+    expect(formatElapsed(Number.NaN)).toBe('0 秒');
+  });
+});
+
+describe('runtimePills', () => {
+  it('always reports the event-only mode', () => {
+    const cases = [
+      runtimePills(task(), 'open', T_1402 + 942_000),
+      runtimePills(task(), 'reconnecting', T_1402 + 942_000),
+      runtimePills(task(), 'closed', T_1402 + 942_000),
+      runtimePills(task({ extraTokens: 0, mode: 'event-only' })),
+    ];
+    for (const pills of cases) {
+      expect(pills.mode).toBe('纯事件模式 · 0 额外 Token');
+      expect(pills.mode).toBe(RUNTIME_MODE_LABEL);
+      expect(pills.mode).toContain('0 额外 Token');
+    }
+  });
+
+  it('measures from the first observed event to the given instant', () => {
+    expect(runtimePills(task(), 'open', T_1402 + 942_000).elapsed).toBe('15 分 42 秒');
+    expect(runtimePills(task(), 'open', T_1402).elapsed).toBe('0 秒');
+    expect(taskElapsedMs(task(), T_1402 - 5_000)).toBe(0);
+  });
+
+  it('stops the clock at the last event while the stream is down', () => {
+    const later = T_1402 + 942_000;
+    expect(runtimePills(task(), 'closed', later + 600_000).elapsed)
+      .toBe(runtimePills(task(), 'open', later).elapsed);
+    expect(runtimePills(task(), 'open', later + 600_000).elapsed).not.toBe('15 分 42 秒');
+  });
+});
+
+describe('hudCardMode — auto expand / manual fold', () => {
   it('renders nothing in orb mode', () => {
     for (const state of STATES) {
       expect(hudCardMode('orb', state, false)).toBe('hidden');
@@ -229,7 +314,7 @@ describe('hudCardMode — auto expand / manual collapse', () => {
     }
   });
 
-  it('is always the single line in compact mode', () => {
+  it('is always the chip in compact mode', () => {
     for (const state of STATES) {
       expect(hudCardMode('compact', state, false)).toBe('compact');
       expect(hudCardMode('compact', state, true)).toBe('compact');
@@ -251,40 +336,118 @@ describe('hudCardMode — auto expand / manual collapse', () => {
     for (const state of STATES) {
       expect(hudCardMode('auto', state, true), state).toBe('compact');
     }
-  });
-
-  it('stays folded across a whole burst of new events', () => {
-    // A live turn would otherwise unfold the card: folded wins every time.
-    const burst: OrbitAgentState[] = ['starting', 'thinking', 'preparing', 'executing', 'responding', 'executing', 'waiting', 'error', 'completed'];
+    const burst: OrbitAgentState[] = [
+      'starting', 'thinking', 'preparing', 'executing', 'responding', 'waiting', 'error', 'completed',
+    ];
     for (const state of burst) {
-      expect(hudCardMode('auto', state, true)).toBe('compact');
+      expect(hudCardMode('auto', state, true), state).toBe('compact');
     }
-    // Only clearing the flag (a user click) brings the card back.
+    // Only clearing the flag (a click) brings the panel back.
     expect(hudCardMode('auto', 'executing', false)).toBe('expanded');
   });
 });
 
-describe('hud corner reservation', () => {
-  it('keeps the card at its home corner by default', () => {
-    // The shipped launcher position: right 24, bottom 24.
-    expect(hudDodgeOffset({ right: 24, bottom: 24 }, false)).toBe(104);
-    expect(hudDodgeOffset({ right: 24, bottom: 24 }, true)).toBe(104);
+describe('shouldShowSilence', () => {
+  it('shows nothing at level 0', () => {
+    expect(shouldShowSilence(task({ silence: { ms: 5_000, level: 0, label: '…' } }))).toBe(false);
   });
 
-  it('steps above the orb once the orb is dragged into the card', () => {
-    const offset = hudDodgeOffset({ right: 120, bottom: 160 }, false);
-    expect(offset).toBeGreaterThan(104);
-    // Just above the orb's top edge plus a gap.
-    expect(offset).toBe(160 + 76 + 12);
+  it('honours the user switch', () => {
+    const quiet = task({ silence: { ms: 45_000, level: 1, label: '已有 45 秒没有新活动。' } });
+    expect(shouldShowSilence(quiet, true)).toBe(true);
+    expect(shouldShowSilence(quiet, false)).toBe(false);
+    expect(shouldShowSilence(task({
+      silence: { ms: 200_000, level: 3, label: '已有 3 分钟没有新活动。' },
+    }), false)).toBe(false);
   });
 
-  it('ignores a launcher parked on the far left', () => {
-    expect(hudDodgeOffset({ right: 900, bottom: 200 }, false)).toBe(104);
+  it('is false before the first snapshot', () => {
+    expect(shouldShowSilence(null)).toBe(false);
+  });
+});
+
+describe('nextStepLabel', () => {
+  it('returns undefined without a published plan', () => {
+    expect(nextStepLabel(null)).toBeUndefined();
+    expect(nextStepLabel(task())).toBeUndefined();
+    expect(nextStepLabel(task({ nextStep: '   ' }))).toBeUndefined();
   });
 
-  it('is deterministic for the same input', () => {
-    const a = hudDodgeOffset({ right: 40, bottom: 60 }, false);
-    const b = hudDodgeOffset({ right: 40, bottom: 60 }, false);
-    expect(a).toBe(b);
+  it('returns the real plan step when the Agent published one', () => {
+    expect(nextStepLabel(task({ nextStep: '校验设备映射关系' }))).toBe('校验设备映射关系');
+  });
+});
+
+describe('currentStatusText', () => {
+  it('prefers the Host silence sentence when the switch is on', () => {
+    const quiet = task({
+      currentAction: '正在查询',
+      silence: { ms: 45_000, level: 1, label: '已有 45 秒没有新活动。' },
+    });
+    expect(currentStatusText(quiet, 'quiet', true)).toBe('已有 45 秒没有新活动。');
+    // Same task, switch off: the newest real action takes over.
+    expect(currentStatusText(quiet, 'quiet', false)).toBe('正在查询');
+  });
+
+  it('falls back to a fixed sentence per state, never to a stuck claim', () => {
+    const noAction = task({ currentAction: undefined });
+    expect(currentStatusText(noAction, 'executing')).toBe('正在执行工具调用。');
+    expect(currentStatusText(noAction, 'waiting')).toBe('正在等待用户审批。');
+    expect(currentStatusText(noAction, 'responding')).toBe('正在组织答复。');
+    expect(currentStatusText(noAction, 'idle')).toBe('当前没有新活动。');
+    for (const state of STATES) {
+      const text = currentStatusText(noAction, state);
+      expect(text.trim().length, state).toBeGreaterThan(0);
+      expect(text, state).not.toContain('卡死');
+      expect(text, state).not.toContain('无响应');
+    }
+  });
+
+  it('speaks about the connection, not about a stuck Agent, before the first frame', () => {
+    expect(currentStatusText(null, 'idle')).toBe('等待第一条任务事件…');
+    expect(currentStatusText(null, 'executing')).toBe('正在执行工具调用。');
+  });
+});
+
+describe('task title and phase', () => {
+  it('marks the generic title as a fallback', () => {
+    expect(taskTitleOf(null)).toEqual({ text: TASK_TITLE_FALLBACK, fallback: true });
+    expect(taskTitleOf(task({ taskTitle: '  ', titleSource: 'fallback' })))
+      .toEqual({ text: TASK_TITLE_FALLBACK, fallback: true });
+    expect(taskTitleOf(task())).toEqual({ text: '联调 Egress VNI API', fallback: false });
+  });
+
+  it('never returns an empty phase line', () => {
+    expect(phaseTextOf(task(), 'executing')).toBe('查询接口');
+    expect(phaseTextOf(task({ phase: 'reading', phaseLabel: '' }), 'executing')).toBe('阅读项目');
+    expect(phaseTextOf(null, 'idle')).toBe('等待任务');
+  });
+});
+
+describe('footerStats', () => {
+  it('prints only the counters that are real', () => {
+    const counts = task({ observedActivityCount: 5, toolCallCount: 4 });
+    expect(footerStats(counts, '15 分 42 秒')).toBe('已观察到 5 项活动 · 工具 4 次 · 运行 15 分 42 秒');
+    // No tools yet: the counter is omitted instead of printed as zero.
+    expect(footerStats(task({ observedActivityCount: 2, toolCallCount: 0 }), '3 秒'))
+      .toBe('已观察到 2 项活动 · 运行 3 秒');
+    expect(footerStats(task({ observedActivityCount: 0, toolCallCount: 0 }), '0 秒'))
+      .toBe('尚未观察到活动 · 运行 0 秒');
+    expect(footerStats(null, '0 秒')).toBe('尚未收到任务事件');
+  });
+});
+
+describe('hudActivityRows', () => {
+  it('caps at five rows and keeps the Host order', () => {
+    const rows = Array.from({ length: 8 }, (_, index) =>
+      activity({ id: `a${index}`, label: `活动 ${index}` }));
+    const shown = hudActivityRows(task({ recentActivities: rows }));
+    expect(shown).toHaveLength(5);
+    expect(shown.map((row) => row.id)).toEqual(['a0', 'a1', 'a2', 'a3', 'a4']);
+  });
+
+  it('returns nothing for an empty task list', () => {
+    expect(hudActivityRows(task())).toEqual([]);
+    expect(hudActivityRows(task(), 0)).toEqual([]);
   });
 });

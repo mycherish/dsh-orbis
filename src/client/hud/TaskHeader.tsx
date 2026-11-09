@@ -102,7 +102,7 @@ export function TaskHeader(props: TaskHeaderProps): React.ReactElement {
   return (
     <header className="no-hud-head">
       <HudMark className="no-hud-logo" />
-      <span className="no-hud-name">Neural Orbit</span>
+      <span className="no-hud-name">Caelum Orbis</span>
       <span className="no-hud-chip" role="status" aria-live="polite">
         <i className="no-hud-chip-dot" aria-hidden="true" />
         {chip}

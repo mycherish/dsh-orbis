@@ -100,8 +100,8 @@ describe('host plugin wiring', () => {
         'user-questions/request',
       ]);
       expect(host.routes.map((route) => route.path).sort()).toEqual([
-        '/api/neural-orbit/events',
-        '/api/neural-orbit/state',
+        '/api/orbis/events',
+        '/api/orbis/state',
       ]);
       expect(host.warnings).toEqual([]);
     } finally {
@@ -142,10 +142,10 @@ describe('host plugin wiring', () => {
         data: { turn: 1, step: 1, callId: 'c1', name: 'edit', arguments: '{"file_path":"/Users/x/y.ts"}' },
       });
 
-      const stateRoute = host.routes.find((route) => route.path === '/api/neural-orbit/state');
+      const stateRoute = host.routes.find((route) => route.path === '/api/orbis/state');
       expect(stateRoute).toBeDefined();
       const read = async (): Promise<Record<string, unknown>> => {
-        const response = await stateRoute?.resource(new Request(`http://local/api/neural-orbit/state?sessionId=s1`));
+        const response = await stateRoute?.resource(new Request(`http://local/api/orbis/state?sessionId=s1`));
         return (await response?.json()) as Record<string, unknown>;
       };
 
@@ -197,9 +197,9 @@ describe('host plugin wiring', () => {
         time: T0,
         data: { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"ls"}' },
       });
-      const stateRoute = host.routes.find((route) => route.path === '/api/neural-orbit/state');
+      const stateRoute = host.routes.find((route) => route.path === '/api/orbis/state');
       const body = (await (await stateRoute?.resource(
-        new Request('http://local/api/neural-orbit/state?sessionId=s1'),
+        new Request('http://local/api/orbis/state?sessionId=s1'),
       ))?.json()) as Record<string, unknown>;
       expect((body.task as Record<string, unknown>).taskTitle).toBe('修复重复悬浮球');
     } finally {
@@ -222,9 +222,9 @@ describe('host plugin wiring', () => {
         time: T0 + 1,
         data: { title: '新标题', messageSeqs: [1], source: { kind: 'user' } },
       });
-      const stateRoute = host.routes.find((route) => route.path === '/api/neural-orbit/state');
+      const stateRoute = host.routes.find((route) => route.path === '/api/orbis/state');
       const body = (await (await stateRoute?.resource(
-        new Request('http://local/api/neural-orbit/state?sessionId=s1'),
+        new Request('http://local/api/orbis/state?sessionId=s1'),
       ))?.json()) as Record<string, unknown>;
       expect((body.task as Record<string, unknown>).taskTitle).toBe('新标题');
     } finally {
@@ -262,10 +262,10 @@ describe('host plugin wiring', () => {
         next: () => Promise<unknown>,
       ) => Promise<unknown>;
 
-      const stateRoute = host.routes.find((route) => route.path === '/api/neural-orbit/state');
+      const stateRoute = host.routes.find((route) => route.path === '/api/orbis/state');
       expect(stateRoute).toBeDefined();
       const read = async (): Promise<Record<string, unknown>> =>
-        (await (await stateRoute!.resource(new Request('http://local/api/neural-orbit/state?sessionId=s1'))).json()) as Record<string, unknown>;
+        (await (await stateRoute!.resource(new Request('http://local/api/orbis/state?sessionId=s1'))).json()) as Record<string, unknown>;
 
       onStatus({ agent: { id: 's1' }, status: 'running' });
       onEvent({ id: 's1' }, {
@@ -333,7 +333,7 @@ describe('host plugin wiring', () => {
 
   it('describes itself for diagnostics', () => {
     const info = describePlugin();
-    expect(info.name).toBe('neural-orbit');
+    expect(info.name).toBe('orbis');
     expect(info.persistence).toBe('none');
   });
 });

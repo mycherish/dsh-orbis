@@ -1,12 +1,41 @@
 {
-  "name": "dsh-neural-orbit",
-  "version": "2.0.2",
-  "description": "Neural Orbit — a 3D agent status companion and execution visualizer for DeepSeek Harness",
+  "name": "dsh-orbis",
+  "version": "2.1.0",
+  "description": "Caelum Orbis — an always-on 3D agent status HUD and execution visualizer for DeepSeek Harness.",
   "license": "MIT",
+  "author": {
+    "name": "Caelum",
+    "url": "https://github.com/mycherish"
+  },
   "type": "module",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.0-rc.1 <0.3.0-0"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "status",
+    "hud",
+    "visualizer",
+    "webgl",
+    "three",
+    "orb"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mycherish/dsh-orbis.git"
+  },
+  "homepage": "https://github.com/mycherish/dsh-orbis#readme",
+  "bugs": {
+    "url": "https://github.com/mycherish/dsh-orbis/issues"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
+    "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
@@ -16,6 +45,7 @@
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
+    "docs/*.webp",
     "README.md",
     "THIRD-PARTY-NOTICES.md"
   ],
@@ -33,10 +63,8 @@
       "platform": "web",
       "immediately": true,
       "inject": [
-        "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-client-ui-layout",
-        "@deepseek-ai/dsh-client-ui-sidebar",
-        "@deepseek-ai/dsh-client-ui-session"
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-locale"
       ]
     }
   },

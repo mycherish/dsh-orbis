@@ -1,4 +1,4 @@
-# Neural Orbit
+# Caelum Orbis
 
 3D AI Agent 状态伴侣 + Always-on 工作进度 HUD（DeepSeek Harness Web 插件）。
 
@@ -12,21 +12,21 @@
 
 十一状态的 3D 能量球（headless Chrome + SwiftShader 真实 WebGL 渲染，非示意图）：
 
-![十一状态能量球](docs/orb-states-v2.png)
+![十一状态能量球](docs/orb-states-v2.webp)
 
 Always-on HUD（470px 玻璃面板：任务标题 / 阶段 / 运行时长 / 纯事件模式 / 最近 5 条活动 / 当前状态 / 下一步 / 真实计数）：
 
-![Always-on HUD](docs/hud.png)
+![Always-on HUD](docs/hud.webp)
 
 窄屏（414px）自动改为顶部浮动：
 
-![Always-on HUD 窄屏](docs/hud-mobile.png)
+![Always-on HUD 窄屏](docs/hud-mobile.webp)
 
 Workspace 面板与设置（v1 截图，v2 布局未变，仅新增 4 项设置与 11 状态文案）：
 
-![Workspace 面板](docs/workspace.png)
+![Workspace 面板](docs/workspace.webp)
 
-![设置](docs/workspace-settings.png)
+![设置](docs/workspace-settings.webp)
 
 ---
 
@@ -115,8 +115,8 @@ DSH Host 进程                         浏览器（DSH Web GUI）
 │ normalize（白名单化）         │      │                ↑                  │
 │ categories（10 族分类）       │      │                │                  │
 │ correlation（callId 关联）    │ SSE  │                │                  │
-│ stream（瞬时帧→相位）         │─────▶│  GET /api/neural-orbit/events     │
-│ quiet（单调时钟静默）         │ JSON │  GET /api/neural-orbit/state      │
+│ stream（瞬时帧→相位）         │─────▶│  GET /api/orbis/events            │
+│ quiet（单调时钟静默）         │ JSON │  GET /api/orbis/state             │
 │ 11 状态机 + 40 条环形缓冲     │      │                                   │
 │ OrbitSnapshot                │      │                                   │
 └──────────────────────────────┘      └───────────────────────────────────┘
@@ -195,8 +195,9 @@ DSH Host 进程                         浏览器（DSH Web GUI）
 ## 五、开发
 
 ```bash
-cd neural-orbit
-pnpm install        # 已装好：three / zustand / esbuild / typescript / vitest
+git clone https://github.com/mycherish/dsh-orbis.git
+cd dsh-orbis
+pnpm install        # three / zustand / esbuild / typescript / vitest
 pnpm build          # 产出 index.js（Host ESM）与 client.js（ModuleLoader 格式）
 pnpm typecheck      # tsc --noEmit（整仓）
 pnpm test           # vitest
@@ -208,9 +209,17 @@ pnpm verify         # build + typecheck + test
 
 ### 安装 / 卸载
 
+三选一：
+
 ```text
-plugin_manager install_bundle  target=/Users/xuweidong/Desktop/Wayne/neural-orbit
-plugin_manager remove_bundle   target=dsh-neural-orbit
+# 1. 从 npm 安装（推荐，无需克隆仓库）
+设置 → 插件 → 添加插件 → 安装第三方插件 → 填 dsh-orbis
+
+# 2. 从本地目录安装（改代码时用）
+plugin_manager install_bundle   target=/绝对路径/dsh-orbis
+
+# 3. 卸载
+plugin_manager remove_bundle    target=dsh-orbis
 ```
 
 安装后刷新一次 Harness 页面（浏览器半每个页面代次只加载一次），右下角出现进度卡与能量球。
@@ -224,12 +233,13 @@ plugin_manager remove_bundle   target=dsh-neural-orbit
 | 项 | 命令 / 方式 | 结果 |
 |---|---|---|
 | 类型检查（`strict` + `noUncheckedIndexedAccess`） | `tsc --noEmit -p tsconfig.json` | ✅ 0 错误 |
-| 单元 / 集成测试 | `vitest run` | ✅ **224 项 / 14 文件**全过（v1 的 58 项全部保留） |
-| 构建 | `node scripts/build.mjs` | ✅ `index.js` 58.6 kB、`client.js` 676.3 kB（39 模块） |
-| 运行时数据通路 | `curl /api/neural-orbit/state` | ✅ 返回 v2 快照：`task.taskTitle` / `task.phase` / `task.silence.label` / 活动行 / 计数 全部在线生成 |
+| 单元 / 集成测试 | `vitest run` | ✅ **304 项 / 17 文件**全过（含发布契约：产物 banner 必须与 `package.json` 同版本） |
+| 构建 | `node scripts/build.mjs` | ✅ `index.js` 68.4 kB、`client.js` 679.9 kB（41 模块），两次构建 sha256 一致 |
+| 发布体积 | `npm pack` | ✅ 19 个文件、822.6 kB（截图已转 WebP，8.7 MB → 613 kB） |
+| 运行时数据通路 | `curl /api/orbis/state` | ✅ 返回 v2 快照：`task.taskTitle` / `task.phase` / `task.silence.label` / 活动行 / 计数 全部在线生成 |
 | 静默与执行态共存 | 同上（工具执行中连续采样） | ✅ `silenceMs` 44→2112→4158 递增，状态保持 `executing` |
 | Host 行激活 | `plugin_manager list_plugins` / `set_plugin` | ✅ 重载 `applied`，无 warning |
-| 十一状态渲染 | headless Chrome + SwiftShader | ✅ `docs/orb-states-v2.png` |
+| 十一状态渲染 | headless Chrome + SwiftShader | ✅ `docs/orb-states-v2.webp` |
 
 测试覆盖要点：十一状态机的全部迁移与优先级、静默分档、`executing` 不吃静默；callId 乱序 / 重复 / 结果先到 / 超时 / drain；瞬时帧只暴露类型标签；审批双通道合并与四种 outcome；**路径与参数脱敏**；SSE 首帧 / 变更推送 / 版本单调 / 卸载关流；总开关关闭后的设置迁移与零副作用路径；HUD 文案与展开策略；11 状态动效签名两两互异。
 
@@ -253,4 +263,4 @@ plugin_manager remove_bundle   target=dsh-neural-orbit
 1. 刷新一次 Harness 页面（浏览器半每个页面代次只加载一次）。
 2. 让 Agent 干点活：右下角出现进度卡（默认 30 FPS，纯 DOM，不吃 GPU）。
 3. 点卡片上的「展开 Workspace」看细节；点卡片右上 × 收起后，它不会再自己弹出来。
-4. 设置里可以：关掉常驻卡片、切成"仅球体"、或一键关掉整个 Neural Orbit（连渲染器一起释放）。
+4. 设置里可以：关掉常驻卡片、切成"仅球体"、或一键关掉整个 Caelum Orbis（连渲染器一起释放）。

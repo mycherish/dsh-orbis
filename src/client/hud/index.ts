@@ -2,10 +2,10 @@
  * The always-on HUD module: the pure snapshot → copy / colour / clock rules and
  * the panel that renders them.
  *
- * The shell (layer.tsx) mounts `NeuralOrbitHUD` and hands it the ball canvas;
+ * The shell (layer.tsx) mounts `OrbisHUD` and hands it the ball canvas;
  * nothing in here owns a transport, a settings store or a WebGL renderer.
  */
-export { NeuralOrbitHUD, type NeuralOrbitHUDProps } from './NeuralOrbitHUD';
+export { OrbisHUD, type OrbisHUDProps } from './OrbisHUD';
 export { TaskHeader, type TaskHeaderProps } from './TaskHeader';
 export { TaskSummary, type TaskSummaryProps } from './TaskSummary';
 export { ActivityTimeline, type ActivityTimelineProps } from './ActivityTimeline';

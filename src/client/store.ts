@@ -5,7 +5,7 @@
  * Settings and the launcher position are mirrored into `localStorage`;
  * nothing else is stored.
  *
- * Settings live under a versioned key: `neural-orbit.settings.v2`. v1 payloads
+ * Settings live under a versioned key: `orbis.settings.v2`. v1 payloads
  * (six animation fields, no master switch) are still read once and migrated, so
  * an upgrade never resets the user's choices and never throws.
  */
@@ -18,11 +18,26 @@ import {
 import type { OrbitSnapshot } from '../shared/protocol';
 
 /** Exported so the migration test pins the exact legacy key it must read. */
-export const SETTINGS_KEY = 'neural-orbit.settings.v2';
+export const SETTINGS_KEY = 'orbis.settings.v2';
 /** v1 payload: the six animation fields only, no master switch. */
-export const LEGACY_SETTINGS_KEY = 'neural-orbit.settings.v1';
-export const POSITION_KEY = 'neural-orbit.launcher.v1';
-export const HUD_KEY = 'neural-orbit.hud.v1';
+export const LEGACY_SETTINGS_KEY = 'orbis.settings.v1';
+export const POSITION_KEY = 'orbis.launcher.v1';
+export const HUD_KEY = 'orbis.hud.v1';
+
+/**
+ * Pre-rename spellings. The plugin shipped as `dsh-neural-orbit` up to v2.0.2,
+ * so every key above has a twin under the old namespace. They are only ever
+ * read as a fallback and never written again: renaming a package must not look
+ * to the user like an upgrade that silently wiped their launcher position, their
+ * switches and the folded state of their panel. Drop this map (and its test) in
+ * the next major.
+ */
+export const RENAMED_KEYS: Readonly<Record<string, string>> = {
+  [SETTINGS_KEY]: 'neural-orbit.settings.v2',
+  [LEGACY_SETTINGS_KEY]: 'neural-orbit.settings.v1',
+  [POSITION_KEY]: 'neural-orbit.launcher.v1',
+  [HUD_KEY]: 'neural-orbit.hud.v1',
+};
 
 export interface LauncherPosition {
   /** Distance from the right edge, in CSS pixels. */
@@ -37,13 +52,25 @@ function storage(): Storage | undefined {
   try {
     const candidate = globalThis.localStorage;
     if (candidate === undefined || candidate === null) return undefined;
-    const probe = '__neural_orbit_probe__';
+    const probe = '__orbis_probe__';
     candidate.setItem(probe, '1');
     candidate.removeItem(probe);
     return candidate;
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Read one namespaced key, falling back to its pre-rename twin. The fallback is
+ * read-only on purpose: the next write lands under the current key, so the old
+ * entry is shadowed from then on without an eager migration write on every load.
+ */
+function readRaw(store: Storage, key: string): string | null {
+  const current = store.getItem(key);
+  if (current !== null) return current;
+  const previous = RENAMED_KEYS[key];
+  return previous === undefined ? null : store.getItem(previous);
 }
 
 function clamp(value: unknown, min: number, max: number, fallback: number): number {
@@ -109,9 +136,9 @@ export function loadSettings(): OrbitSettings {
   const store = storage();
   if (store === undefined) return { ...DEFAULT_SETTINGS };
   try {
-    const current = store.getItem(SETTINGS_KEY);
+    const current = readRaw(store, SETTINGS_KEY);
     if (current !== null) return parseSettings(current);
-    const legacy = store.getItem(LEGACY_SETTINGS_KEY);
+    const legacy = readRaw(store, LEGACY_SETTINGS_KEY);
     if (legacy === null) return { ...DEFAULT_SETTINGS };
     const migrated = parseSettings(legacy);
     // Best effort: keep the v1 payload untouched, add the v2 mirror.
@@ -137,7 +164,7 @@ export function saveSettings(settings: OrbitSettings): void {
 }
 
 /**
- * The HUD's own two flags. They share one key (`neural-orbit.hud.v1`) and one
+ * The HUD's own two flags. They share one key (`orbis.hud.v1`) and one
  * object, because they describe the same panel:
  *
  *  - `collapsed` — the user folded the card by hand; only a click unfolds it;
@@ -158,7 +185,7 @@ function readHudFlags(): HudFlags {
   const store = storage();
   if (store === undefined) return { ...HUD_FLAGS_IDLE };
   try {
-    const raw = store.getItem(HUD_KEY);
+    const raw = readRaw(store, HUD_KEY);
     if (raw === null) return { ...HUD_FLAGS_IDLE };
     const parsed = JSON.parse(raw) as unknown;
     if (typeof parsed === 'boolean') return { collapsed: parsed, pinned: false };
@@ -212,7 +239,7 @@ export function loadPosition(): LauncherPosition {
   const store = storage();
   if (store === undefined) return { ...DEFAULT_POSITION };
   try {
-    const raw = store.getItem(POSITION_KEY);
+    const raw = readRaw(store, POSITION_KEY);
     if (raw === null) return { ...DEFAULT_POSITION };
     const parsed = JSON.parse(raw) as Partial<LauncherPosition>;
     return {

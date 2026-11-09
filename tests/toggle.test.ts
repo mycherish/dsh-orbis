@@ -39,8 +39,11 @@ import { DEFAULT_SETTINGS } from '../src/client/contracts';
 import {
   HUD_KEY,
   LEGACY_SETTINGS_KEY,
+  POSITION_KEY,
+  RENAMED_KEYS,
   SETTINGS_KEY,
   loadHudCollapsed,
+  loadPosition,
   loadSettings,
   parseSettings,
   sanitizeSettings,
@@ -113,9 +116,48 @@ afterEach(() => {
 
 describe('settings keys', () => {
   it('pins the keys the migration has to honour', () => {
-    expect(SETTINGS_KEY).toBe('neural-orbit.settings.v2');
-    expect(LEGACY_SETTINGS_KEY).toBe('neural-orbit.settings.v1');
-    expect(HUD_KEY).toBe('neural-orbit.hud.v1');
+    expect(SETTINGS_KEY).toBe('orbis.settings.v2');
+    expect(LEGACY_SETTINGS_KEY).toBe('orbis.settings.v1');
+    expect(HUD_KEY).toBe('orbis.hud.v1');
+    expect(POSITION_KEY).toBe('orbis.launcher.v1');
+  });
+});
+
+describe('pre-rename keys', () => {
+  // The plugin shipped as `dsh-neural-orbit` up to v2.0.2. Anyone who installed
+  // that build has their switches, their folded panel and their launcher
+  // position under the old namespace, and a rename must not look like a reset.
+  it('reads settings written under the old namespace', () => {
+    fake.setItem(
+      RENAMED_KEYS[SETTINGS_KEY] ?? '',
+      JSON.stringify({ ...DEFAULT_SETTINGS, enabled: false, fps: 30 }),
+    );
+    const settings = loadSettings();
+    expect(settings.enabled).toBe(false);
+    expect(settings.fps).toBe(30);
+  });
+
+  it('prefers the current key once anything has been written', () => {
+    fake.setItem(RENAMED_KEYS[SETTINGS_KEY] ?? '', JSON.stringify({ ...DEFAULT_SETTINGS, fps: 30 }));
+    fake.setItem(SETTINGS_KEY, JSON.stringify({ ...DEFAULT_SETTINGS, fps: 60 }));
+    expect(loadSettings().fps).toBe(60);
+  });
+
+  it('keeps the folded panel and the launcher position across the rename', () => {
+    fake.setItem(RENAMED_KEYS[HUD_KEY] ?? '', JSON.stringify({ collapsed: true, pinned: true }));
+    fake.setItem(RENAMED_KEYS[POSITION_KEY] ?? '', JSON.stringify({ right: 40, bottom: 200 }));
+    expect(loadHudCollapsed()).toBe(true);
+    expect(loadPosition()).toEqual({ right: 40, bottom: 200 });
+  });
+
+  it('writes back under the current key, so the old one is shadowed', () => {
+    fake.setItem(RENAMED_KEYS[HUD_KEY] ?? '', JSON.stringify({ collapsed: true }));
+    saveHudCollapsed(false);
+    expect(JSON.parse(fake.getItem(HUD_KEY) ?? 'null')).toEqual({ collapsed: false });
+    // The old entry is read-only: untouched, merely outranked from now on.
+    expect(JSON.parse(fake.getItem(RENAMED_KEYS[HUD_KEY] ?? '') ?? 'null')).toEqual({
+      collapsed: true,
+    });
   });
 });
 

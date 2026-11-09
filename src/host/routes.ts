@@ -2,8 +2,8 @@
  * The read-only HTTP surface (spec §6).
  *
  * Two exact routes on the DSH web carrier:
- *   GET /api/neural-orbit/state  → the current snapshot as JSON
- *   GET /api/neural-orbit/events → the same snapshot, then every change, over SSE
+ *   GET /api/orbis/state  → the current snapshot as JSON
+ *   GET /api/orbis/events → the same snapshot, then every change, over SSE
  *
  * Both go through `webServer.register({ resource })`, so they answer with a
  * standard `Request`/`Response` pair, stay same-origin with the GUI, and are

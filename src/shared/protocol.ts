@@ -1,5 +1,5 @@
 /**
- * Neural Orbit wire protocol — v2.0.
+ * Caelum Orbis wire protocol — v2.0.
  *
  * The snapshot is the only thing that crosses the Host → Client boundary. It
  * carries an Agent state, a normalized activity list and one Task Context
@@ -120,5 +120,5 @@ export const CALL_TIMEOUT_MS = 10 * 60_000;
 export const HEARTBEAT_MS = 30000;
 
 /** Route paths owned by this plugin. */
-export const STATE_ROUTE = '/api/neural-orbit/state';
-export const EVENTS_ROUTE = '/api/neural-orbit/events';
+export const STATE_ROUTE = '/api/orbis/state';
+export const EVENTS_ROUTE = '/api/orbis/events';

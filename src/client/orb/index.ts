@@ -1,5 +1,5 @@
 /**
- * Neural Orbit 的 3D 能量球渲染器（Deep Space · Glass · Energy Orb）。
+ * Caelum Orbis 的 3D 能量球渲染器（Deep Space · Glass · Energy Orb）。
  *
  * 入口导出 `createOrbRenderer: CreateOrbRenderer`，实现见本文件。
  * 模块级**没有任何** DOM / WebGL 访问：所有 canvas、renderer、几何体都在
@@ -50,7 +50,7 @@ function warnUnavailable(reason: string): void {
   if (warnedUnavailable) return;
   warnedUnavailable = true;
   // 唯一允许的控制台输出：宿主据此回退到静态状态展示。
-  console.warn(`[neural-orbit] WebGL 不可用，已回退到静态展示：${reason}`);
+  console.warn(`[orbis] WebGL 不可用，已回退到静态展示：${reason}`);
 }
 
 /**

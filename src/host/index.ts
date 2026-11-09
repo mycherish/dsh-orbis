@@ -1,5 +1,5 @@
 /**
- * Neural Orbit — Host half.
+ * Caelum Orbis — Host half.
  *
  * Wires DSH events into the `OrbitHub` state fold and exposes the read-only
  * snapshot/SSE routes. It never calls the LLM, never executes a tool, and never
@@ -119,7 +119,7 @@ function codeOf(value: unknown): string | undefined {
   return typeof code === 'string' ? code : undefined;
 }
 
-export const name = 'neural-orbit';
+export const name = 'orbis';
 
 export function apply(ctx: HostContextLike): void {
   const hub: OrbitHub = new Hub();
@@ -131,7 +131,7 @@ export function apply(ctx: HostContextLike): void {
     conversions += 1;
     if (conversions > 3) return; // Never let diagnostics become the problem.
     const message = error instanceof Error ? error.message : String(error);
-    console.warn(`[neural-orbit] ${label} failed: ${message}`);
+    console.warn(`[orbis] ${label} failed: ${message}`);
   };
 
   // Cross-Agent coverage: the built-in controllers listen with `{ global: true }`
@@ -179,7 +179,7 @@ export function apply(ctx: HostContextLike): void {
     } catch (error) {
       report('session event normalization', error);
     }
-  }, GLOBAL), 'neural-orbit: session events');
+  }, GLOBAL), 'orbis: session events');
 
   ctx.effect(() => ctx.on('agent/status', (payload) => {
     try {
@@ -189,7 +189,7 @@ export function apply(ctx: HostContextLike): void {
     } catch (error) {
       report('agent status', error);
     }
-  }, GLOBAL), 'neural-orbit: agent status');
+  }, GLOBAL), 'orbis: agent status');
 
   ctx.effect(() => ctx.on('agent/turn-stopping', (payload) => {
     try {
@@ -199,7 +199,7 @@ export function apply(ctx: HostContextLike): void {
     } catch (error) {
       report('turn stopping', error);
     }
-  }, GLOBAL), 'neural-orbit: turn stopping');
+  }, GLOBAL), 'orbis: turn stopping');
 
   ctx.effect(() => ctx.on('agent/error', (payload) => {
     try {
@@ -209,7 +209,7 @@ export function apply(ctx: HostContextLike): void {
     } catch (error) {
       report('agent error', error);
     }
-  }, GLOBAL), 'neural-orbit: agent error');
+  }, GLOBAL), 'orbis: agent error');
 
   ctx.effect(() => ctx.on('agent/disposed', (payload) => {
     try {
@@ -219,7 +219,7 @@ export function apply(ctx: HostContextLike): void {
     } catch (error) {
       report('agent disposed', error);
     }
-  }, GLOBAL), 'neural-orbit: agent disposed');
+  }, GLOBAL), 'orbis: agent disposed');
 
   // Transient model frames: the only real-time signal available, and the only
   // place the plugin can see "thinking" versus "answering" while it happens.
@@ -232,7 +232,7 @@ export function apply(ctx: HostContextLike): void {
     } catch (error) {
       report('assistant stream', error);
     }
-  }, GLOBAL), 'neural-orbit: assistant stream');
+  }, GLOBAL), 'orbis: assistant stream');
 
   // Waterfall: observe the ask, then always delegate the decision.
   ctx.effect(() => ctx.on('approval/request', (request, next) => {
@@ -243,7 +243,7 @@ export function apply(ctx: HostContextLike): void {
       report('approval observation', error);
     }
     return next();
-  }, GLOBAL), 'neural-orbit: approvals');
+  }, GLOBAL), 'orbis: approvals');
 
   // Waterfall: observe the ask, then always delegate the decision. The questions
   // themselves are content and are never read — only the Agent and the call id.
@@ -270,7 +270,7 @@ export function apply(ctx: HostContextLike): void {
     };
     void Promise.resolve(pending).then(released, released);
     return pending;
-  }, GLOBAL), 'neural-orbit: user questions');
+  }, GLOBAL), 'orbis: user questions');
 
   /**
    * The web carrier may activate after this row. Registration is retried from
@@ -288,7 +288,7 @@ export function apply(ctx: HostContextLike): void {
     if (webServer === undefined || webServer === null || typeof webServer.register !== 'function') {
       if (!webServerWarned) {
         webServerWarned = true;
-        console.warn('[neural-orbit] webServer service unavailable; HTTP routes stay disabled');
+        console.warn('[orbis] webServer service unavailable; HTTP routes stay disabled');
       }
       return false;
     }
@@ -312,11 +312,11 @@ export function apply(ctx: HostContextLike): void {
       routes?.dispose();
       routes = undefined;
     };
-  }, 'neural-orbit: ticker and routes');
+  }, 'orbis: ticker and routes');
 
   ctx.effect(() => () => {
     hub.dispose();
-  }, 'neural-orbit: hub teardown');
+  }, 'orbis: hub teardown');
 }
 
 /** Diagnostics for the Plugin Manager detail page and for `dsh doctor`-style checks. */
@@ -324,7 +324,7 @@ export function describe(): Record<string, unknown> {
   return {
     name,
     protocol: ORBIT_PROTOCOL_VERSION,
-    routes: ['/api/neural-orbit/state', '/api/neural-orbit/events'],
+    routes: ['/api/orbis/state', '/api/orbis/events'],
     persistence: 'none',
     llmCalls: 0,
   };

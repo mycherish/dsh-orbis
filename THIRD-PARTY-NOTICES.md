@@ -1,6 +1,6 @@
 # Third-party notices
 
-`client.js` is a single bundled file: the browser half of Neural Orbit plus the
+`client.js` is a single bundled file: the browser half of Caelum Orbis plus the
 third-party libraries below, all of which are MIT-licensed. Their license
 headers are preserved at the end of the generated bundle (esbuild
 `legalComments: 'eof'`), and their full texts are reproduced here.

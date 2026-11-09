@@ -17,3 +17,9 @@ tmp/
 # These hold this machine's session excerpts — never publish them.
 .memsearch/
 docs/AUDIT-2026-11-09-full.md
+
+# Local working notes moved out of the public tree (delivery/audit write-ups).
+.local-notes/
+
+# npm pack output
+*.tgz

@@ -1,5 +1,5 @@
 /**
- * Neural Orbit build.
+ * Caelum Orbis build.
  *
  * Two outputs, no other toolchain:
  *   index.js   Host half — ESM bundle for Node, loaded by the Cordis Loader row.
@@ -8,7 +8,7 @@
  *
  * Run with `node scripts/build.mjs` (or `pnpm build`).
  */
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -108,7 +108,6 @@ ${body}
 }
 
 async function main() {
-  await mkdir(join(root, 'locale'), { recursive: true });
   const host = await buildHost();
   const client = await buildClient();
   const hostBytes = Buffer.byteLength(await readFile(host, 'utf8'));

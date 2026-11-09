@@ -17,7 +17,7 @@ import { createOrbRenderer } from './orb';
 import { createOrbOwner } from './orb-owner';
 import { overlayModeOf, showsRestoreDot, surfacesOf } from './overlay';
 import { clampLauncherPosition, Launcher, LauncherRestore } from './launcher';
-import { NeuralOrbitHUD } from './hud';
+import { OrbisHUD } from './hud';
 import { WorkspaceView } from './workspace';
 import { useOrbitStore } from './store';
 import { startTransport, type Transport } from './transport';
@@ -381,11 +381,11 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
         <button
           type="button"
           className="no-enable"
-          title="启用 Neural Orbit"
-          aria-label="启用 Neural Orbit"
+          title="启用 Caelum Orbis"
+          aria-label="启用 Caelum Orbis"
           onClick={() => patchSettings({ enabled: true })}
         >
-          启用 Neural Orbit
+          启用 Caelum Orbis
         </button>
       </React.Fragment>
     );
@@ -409,7 +409,7 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
         />
       ) : null}
       {surfaces.hud ? (
-        <NeuralOrbitHUD
+        <OrbisHUD
           snapshot={snapshot}
           connection={connection}
           settings={settings}
@@ -447,7 +447,7 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
           onRestore={() => setVisible(true)}
         />
       ) : null}
-      <span hidden aria-hidden="true" data-neural-orbit-launcher-size={LAUNCHER_SIZE} />
+      <span hidden aria-hidden="true" data-orbis-launcher-size={LAUNCHER_SIZE} />
     </React.Fragment>
   );
 }

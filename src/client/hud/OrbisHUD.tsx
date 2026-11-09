@@ -38,7 +38,7 @@ import {
 } from './progress';
 import { buildHudStyles, cssVars } from './styles';
 
-export interface NeuralOrbitHUDProps {
+export interface OrbisHUDProps {
   snapshot: OrbitSnapshot | null;
   connection: OrbitConnection;
   settings: OrbitSettings;
@@ -77,7 +77,7 @@ function StatsIcon(): React.ReactElement {
   );
 }
 
-export function NeuralOrbitHUD(props: NeuralOrbitHUDProps): React.ReactElement | null {
+export function OrbisHUD(props: OrbisHUDProps): React.ReactElement | null {
   const { snapshot, connection, settings, reduceMotion } = props;
   const state = snapshot?.agentState ?? 'idle';
   const task = snapshot?.task ?? null;
@@ -133,7 +133,7 @@ export function NeuralOrbitHUD(props: NeuralOrbitHUDProps): React.ReactElement |
         data-reduce={reduce}
         style={vars}
         title={`${chip} · ${title.text} · ${detail}`}
-        aria-label={reopen ? `展开 Neural Orbit 面板 · ${chip}` : `打开工作区 · ${chip}`}
+        aria-label={reopen ? `展开 Caelum Orbis 面板 · ${chip}` : `打开工作区 · ${chip}`}
         aria-expanded={reopen ? false : undefined}
         onClick={reopen ? props.onExpand : props.onOpenWorkspace}
       >
@@ -159,7 +159,7 @@ export function NeuralOrbitHUD(props: NeuralOrbitHUDProps): React.ReactElement |
       data-display-mode={settings.displayMode}
       style={vars}
       role="group"
-      aria-label="Neural Orbit 任务面板"
+      aria-label="Caelum Orbis 任务面板"
     >
       <style>{CSS}</style>
       <TaskHeader

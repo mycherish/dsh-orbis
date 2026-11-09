@@ -1,5 +1,5 @@
 /**
- * Neural Orbit — browser half entry.
+ * Caelum Orbis — browser half entry.
  *
  * Registers a single `shell.overlay` entry that owns both the floating orb and
  * the workspace panel. The overlay is the narrowest slot that can hold a
@@ -9,8 +9,8 @@
 import * as React from 'react';
 import { OrbitLayer, type OrbitLayerProps } from './layer';
 
-const NS = 'neural-orbit';
-const PANEL_ID = 'neural-orbit';
+const NS = 'orbis';
+const PANEL_ID = 'orbis';
 
 /** Host services this half needs; both are part of the shipped web profile. */
 export const inject = ['slots', 'locale'];
@@ -35,10 +35,10 @@ interface ClientContextLike {
 }
 
 const zh = {
-  'launcher.label': 'Neural Orbit',
+  'launcher.label': 'Caelum Orbis',
   'launcher.tools': '工具',
   'launcher.hide': '隐藏悬浮球',
-  'launcher.show': '显示 Neural Orbit',
+  'launcher.show': '显示 Caelum Orbis',
   'state.idle': '待机',
   'state.thinking': '思考中',
   'state.executing': '执行中',
@@ -48,10 +48,10 @@ const zh = {
 };
 
 const en = {
-  'launcher.label': 'Neural Orbit',
+  'launcher.label': 'Caelum Orbis',
   'launcher.tools': 'tools',
   'launcher.hide': 'Hide orb',
-  'launcher.show': 'Show Neural Orbit',
+  'launcher.show': 'Show Caelum Orbis',
   'state.idle': 'Idle',
   'state.thinking': 'Thinking',
   'state.executing': 'Executing',
@@ -63,7 +63,7 @@ const en = {
 export function apply(ctx: ClientContextLike): void {
   ctx.effect(
     () => ctx.locale.register(NS, { zh, en }),
-    'neural-orbit: dictionaries',
+    'orbis: dictionaries',
   );
   ctx.slots.inject('shell.overlay', () =>
     ctx.slots.register(

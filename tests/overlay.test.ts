@@ -224,7 +224,7 @@ describe('mount chain: single overlay root, single orb', () => {
   });
 
   it('no component renders its own <canvas> any more', () => {
-    for (const file of ['launcher.tsx', 'hud/TaskSummary.tsx', 'workspace/WorkspacePanel.tsx', 'hud/NeuralOrbitHUD.tsx']) {
+    for (const file of ['launcher.tsx', 'hud/TaskSummary.tsx', 'workspace/WorkspacePanel.tsx', 'hud/OrbisHUD.tsx']) {
       const source = client(file);
       expect(source.includes('<canvas')).toBe(false);
       expect(source.includes('createOrbRenderer')).toBe(false);

@@ -18,8 +18,8 @@ import type { OrbitConnection } from '../contracts';
 export const LABELS = {
   panel: {
     /** Accessible name of the dialog itself. */
-    ariaLabel: 'Neural Orbit 工作区',
-    product: 'Neural Orbit',
+    ariaLabel: 'Caelum Orbis 工作区',
+    product: 'Caelum Orbis',
     close: 'Close',
     closeTitle: '关闭面板',
     settings: '设置',
@@ -119,7 +119,7 @@ export const LABELS = {
     unknown: '执行其他操作',
   } satisfies Record<OrbitToolCategory, string>,
   empty: {
-    loadingTitle: '正在唤醒 Neural Orbit…',
+    loadingTitle: '正在唤醒 Caelum Orbis…',
     loadingHint: '等待首个状态快照',
     idleTitle: '等待 Agent 开始工作…',
     idleHint: '第一个事件到达后，执行轨迹会在这里实时浮现',
@@ -155,7 +155,7 @@ export const LABELS = {
   },
   settings: {
     enabled: {
-      label: '启用 Neural Orbit',
+      label: '启用 Caelum Orbis',
       hint: '关闭后断开数据流、停止渲染并释放显存',
     },
     displayMode: {

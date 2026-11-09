@@ -66,13 +66,21 @@ export function toolActivity(input: ToolCallInput): OrbitActivity {
   return withTarget(base, target);
 }
 
+/** Correlation detail that may accompany a non-tool row. */
+export interface ActivityDetail {
+  turn?: number;
+  step?: number;
+  /** The tool call this row is about, so a later `tool/call` can settle it. */
+  callId?: string;
+}
+
 /** Row for an approval ask; carries no tool arguments by construction. */
 export function approvalActivity(
   at: number,
   id: string,
   sessionId: string,
   toolName?: string,
-  location?: { turn?: number; step?: number },
+  detail?: ActivityDetail,
 ): OrbitActivity {
   const target = typeof toolName === 'string' ? redactPath(toolName) : undefined;
   const base: OrbitActivity = {
@@ -84,10 +92,46 @@ export function approvalActivity(
     startedAt: at,
     source: 'approval',
     confidence: 'high',
-    ...(location?.turn === undefined ? {} : { turn: location.turn }),
-    ...(location?.step === undefined ? {} : { step: location.step }),
+    ...(detail?.callId === undefined ? {} : { callId: detail.callId }),
+    ...(detail?.turn === undefined ? {} : { turn: detail.turn }),
+    ...(detail?.step === undefined ? {} : { step: detail.step }),
   };
   return withTarget(base, target);
+}
+
+/**
+ * Row for a `user-questions/request`.
+ *
+ * A question is the same *kind* of event as an approval — the Agent is blocked
+ * on the human — so it uses the same family, but it must not borrow the copy:
+ * 「等待你回答」 is a different thing to ask of someone than 「等待审批」.
+ *
+ * The question text itself is user-facing content and is never passed here; only
+ * the tool name survives, and only as a clipped label rather than a path (a tool
+ * name is not a location, so `redactPath` would mangle it).
+ */
+export function questionActivity(
+  at: number,
+  id: string,
+  sessionId: string,
+  toolName?: string,
+  detail?: ActivityDetail,
+): OrbitActivity {
+  const toolLabel = typeof toolName === 'string' ? clipLabel(toolName, 32) : '';
+  return {
+    id,
+    sessionId,
+    category: 'approval',
+    label: '等待你回答',
+    status: 'running',
+    startedAt: at,
+    source: 'approval',
+    confidence: 'high',
+    ...(toolLabel === '' ? {} : { safeTarget: toolLabel }),
+    ...(detail?.callId === undefined ? {} : { callId: detail.callId }),
+    ...(detail?.turn === undefined ? {} : { turn: detail.turn }),
+    ...(detail?.step === undefined ? {} : { step: detail.step }),
+  };
 }
 
 /**

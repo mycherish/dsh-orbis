@@ -107,7 +107,7 @@ describe('hub fold', () => {
   it('records approvals and resolves them when the gated tool starts', () => {
     const hub = new OrbitHub({ now: () => T0 });
     hub.handleStatus('s1', 'running');
-    hub.handleApproval('s1', 'bash');
+    hub.handleApproval('s1', 'bash', 'c1');
     let snapshot = hub.snapshot('s1');
     expect(snapshot.agentState).toBe('waiting');
     expect(snapshot.events[0]?.category).toBe('approval');
@@ -116,6 +116,98 @@ describe('hub fold', () => {
     snapshot = hub.snapshot('s1');
     expect(snapshot.agentState).toBe('executing');
     expect(snapshot.events.find((row) => row.category === 'approval')?.status).toBe('success');
+  });
+
+  /*
+   * Two asks can be outstanding at once. Settling every running approval row when
+   * *any* tool starts reported one of them as "allowed" although nobody approved it.
+   */
+  it('settles only the approval that belongs to the tool that started', () => {
+    const hub = new OrbitHub({ now: () => T0 });
+    hub.handleStatus('s1', 'running');
+    hub.handleApproval('s1', 'bash', 'c1');
+    hub.handleApproval('s1', 'write', 'c2');
+
+    hub.handleSessionEvent('s1', toolCall(1, 'c1', 'bash', '{"command":"ls"}', T0 + 5));
+
+    const approvals = hub.snapshot('s1').events.filter((row) => row.category === 'approval');
+    const statusOf = new Map(approvals.map((row) => [row.callId, row.status]));
+    expect(statusOf.get('c1')).toBe('success');
+    expect(statusOf.get('c2')).toBe('running');
+  });
+
+  /*
+   * DSH's delta frames carry no Turn, so "is this frame current?" can only be
+   * answered by the machine. Without this guard a frame still in flight when the
+   * Turn ended pushed `completed` back to `responding` one frame later.
+   */
+  it('does not let an in-flight stream frame revive a closed Turn', () => {
+    const hub = new OrbitHub({ now: () => T0 });
+    hub.handleStatus('s1', 'running');
+    hub.handleSessionEvent('s1', { type: 'turn/start', time: T0, data: { turn: 3 } });
+    hub.handleSessionEvent('s1', {
+      type: 'turn/end',
+      time: T0 + 10,
+      data: { turn: 3, reason: { kind: 'completed' } },
+    });
+    expect(hub.snapshot('s1').agentState).toBe('completed');
+
+    // A delta frame with no Turn at all.
+    hub.handleStream('s1', { type: 'chunk', attemptId: 'a', revision: 1, index: 0, time: T0 + 11, chunk: { type: 'text-delta' } });
+    expect(hub.snapshot('s1').agentState).toBe('completed');
+
+    // A frame still tagged with the Turn that already closed.
+    hub.handleStream('s1', { type: 'start', turn: 3, step: 1 });
+    expect(hub.snapshot('s1').agentState).toBe('completed');
+
+    // An `end` frame from the same attempt.
+    hub.handleStream('s1', { type: 'end', attemptId: 'a' });
+    expect(hub.snapshot('s1').agentState).toBe('completed');
+  });
+
+  /*
+   * A question is the Agent blocked on the human, exactly like an approval — but
+   * the plugin used to not listen for it at all, so the HUD kept saying the Agent
+   * was executing while it was really waiting for an answer.
+   */
+  it('reports a question as waiting for an answer, not for an approval', () => {
+    const hub = new OrbitHub({ now: () => T0 });
+    hub.handleStatus('s1', 'running');
+    hub.handleQuestion('s1', 'ask_user_question', 'c9');
+
+    let snapshot = hub.snapshot('s1');
+    expect(snapshot.agentState).toBe('waiting');
+    expect(snapshot.task.waitingReason).toBe('question');
+    expect(snapshot.task.phaseLabel).toBe('等待回答');
+    expect(snapshot.events[0]?.label).toBe('等待你回答');
+    expect(snapshot.events[0]?.category).toBe('approval');
+
+    hub.handleQuestionSettled('s1');
+    snapshot = hub.snapshot('s1');
+    expect(snapshot.agentState).not.toBe('waiting');
+    expect(snapshot.task.waitingReason).toBeUndefined();
+  });
+
+  it('keeps waiting while either an approval or a question is still open', () => {
+    const hub = new OrbitHub({ now: () => T0 });
+    hub.handleStatus('s1', 'running');
+    hub.handleApproval('s1', 'bash', 'c1');
+    hub.handleQuestion('s1', 'ask_user_question', 'c9');
+    expect(hub.snapshot('s1').agentState).toBe('waiting');
+    expect(hub.snapshot('s1').task.waitingReason).toBe('approval');
+
+    // Answering the question must not clear the approval that is still pending.
+    hub.handleQuestionSettled('s1');
+    expect(hub.snapshot('s1').agentState).toBe('waiting');
+    expect(hub.snapshot('s1').task.waitingReason).toBe('approval');
+  });
+
+  it('never carries the question text into the snapshot', () => {
+    const hub = new OrbitHub({ now: () => T0 });
+    hub.handleStatus('s1', 'running');
+    hub.handleQuestion('s1', 'ask_user_question', 'c9');
+    // Even the tool name is clipped, and nothing else is ever passed in.
+    expect(JSON.stringify(hub.snapshot('s1'))).not.toContain('SECRET');
   });
 
   it('bumps version on change and notifies subscribers', async () => {

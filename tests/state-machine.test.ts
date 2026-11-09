@@ -254,3 +254,30 @@ describe('state machine v2: the five new states', () => {
     expect(hasPendingHold(machine, T0)).toBe(true);
   });
 });
+
+describe('questions and closed turns', () => {
+  it('treats a question as a block, independently of an approval', () => {
+    const state = createMachine(0);
+    applyEvent(state, { kind: 'status', status: 'running', at: 1 });
+    applyEvent(state, { kind: 'approval-asked', id: 'ap', at: 2 });
+    applyEvent(state, { kind: 'question-asked', id: 'q', at: 3 });
+    expect(state.agentState).toBe('waiting');
+
+    // Deciding the approval must not claim the question was answered.
+    applyEvent(state, { kind: 'approval-decided', at: 4 });
+    expect(state.agentState).toBe('waiting');
+    expect(state.questionId).toBe('q');
+
+    applyEvent(state, { kind: 'question-settled', at: 5 });
+    expect(state.agentState).not.toBe('waiting');
+    expect(state.questionId).toBeNull();
+  });
+
+  it('remembers the last closed Turn so stale frames can be dropped', () => {
+    const state = createMachine(0);
+    applyEvent(state, { kind: 'turn-start', turn: 7, at: 1 });
+    expect(state.lastClosedTurn).toBeUndefined();
+    applyEvent(state, { kind: 'turn-end', reason: 'completed', at: 2 });
+    expect(state.lastClosedTurn).toBe(7);
+  });
+});

@@ -48,6 +48,9 @@ export type OrbitMachineEvent =
   | { kind: 'tool-end'; id: string; at: number }
   | { kind: 'approval-asked'; id: string; at: number }
   | { kind: 'approval-decided'; at: number }
+  /** A `user-questions/request`: also blocked on the human, but a question. */
+  | { kind: 'question-asked'; id: string; at: number }
+  | { kind: 'question-settled'; at: number }
   | { kind: 'turn-end'; reason: TurnEndKind; at: number }
   | { kind: 'turn-stopping'; at: number }
   /** A step was interrupted but its Turn may still continue (`assistant/message.interrupted`). */
@@ -67,6 +70,21 @@ export interface MachineState {
   openTools: string[];
   /** The approval ask currently blocking progress, if any. */
   approvalId: string | null;
+  /**
+   * The question ask currently blocking progress, if any.
+   *
+   * Deliberately separate from `approvalId`: the two can be outstanding at the
+   * same time, and settling one must not claim the Agent stopped waiting.
+   */
+  questionId: string | null;
+  /**
+   * Highest Turn already closed by `turn/end`.
+   *
+   * Transient stream frames from DSH's delta variants carry no Turn at all, so
+   * this is the only way to tell "a frame belonging to the live Turn" from "a
+   * frame that was still in flight when the Turn ended".
+   */
+  lastClosedTurn?: number;
   /** `error` stays visible until this instant (monotonic). */
   errorUntil: number;
   /** `interrupted` stays visible until this instant (monotonic). */
@@ -91,6 +109,7 @@ export function createMachine(now: number): MachineState {
     phase: 'none',
     openTools: [],
     approvalId: null,
+    questionId: null,
     errorUntil: 0,
     interruptedUntil: 0,
     completedUntil: 0,
@@ -120,7 +139,7 @@ export function quietLevelFor(state: MachineState, at: number): OrbitSilenceLeve
  * `responding` / `preparing` / `thinking` / `starting`.
  */
 export function computeState(state: MachineState, at: number): OrbitAgentState {
-  if (state.approvalId !== null) return 'waiting';
+  if (state.approvalId !== null || state.questionId !== null) return 'waiting';
   if (state.errorUntil > at) return 'error';
   if (state.interruptedUntil > at) return 'interrupted';
   if (state.completedUntil > at) return 'completed';
@@ -165,6 +184,7 @@ export function applyEvent(input: MachineState, event: OrbitMachineEvent): Machi
         state.phase = state.phase === 'none' ? 'none' : state.phase;
         clearHolds(state);
         state.approvalId = null;
+        state.questionId = null;
       } else {
         state.phase = 'none';
       }
@@ -176,6 +196,7 @@ export function applyEvent(input: MachineState, event: OrbitMachineEvent): Machi
       state.step = undefined;
       state.phase = 'none';
       state.approvalId = null;
+      state.questionId = null;
       state.lastActivityAt = event.at;
       clearHolds(state);
       break;
@@ -201,6 +222,7 @@ export function applyEvent(input: MachineState, event: OrbitMachineEvent): Machi
       state.running = true;
       state.phase = 'none';
       state.approvalId = null;
+      state.questionId = null;
       if (!state.openTools.includes(event.id)) state.openTools = [...state.openTools, event.id];
       state.lastActivityAt = event.at;
       clearHolds(state);
@@ -221,12 +243,24 @@ export function applyEvent(input: MachineState, event: OrbitMachineEvent): Machi
       state.lastActivityAt = event.at;
       break;
 
+    case 'question-asked':
+      state.questionId = event.id;
+      state.lastActivityAt = event.at;
+      break;
+
+    case 'question-settled':
+      state.questionId = null;
+      state.lastActivityAt = event.at;
+      break;
+
     case 'turn-end':
       state.running = false;
       state.openTools = [];
       state.phase = 'none';
       state.approvalId = null;
+      state.questionId = null;
       state.step = undefined;
+      if (state.turn !== undefined) state.lastClosedTurn = state.turn;
       switch (event.reason) {
         case 'completed':
         case 'max-tokens':
@@ -259,6 +293,7 @@ export function applyEvent(input: MachineState, event: OrbitMachineEvent): Machi
 
     case 'error':
       state.approvalId = null;
+      state.questionId = null;
       state.phase = 'none';
       state.errorUntil = event.at + ERROR_HOLD_MS;
       state.lastActivityAt = event.at;
@@ -279,7 +314,7 @@ export function applyEvent(input: MachineState, event: OrbitMachineEvent): Machi
  */
 export function hasPendingHold(state: MachineState, at: number): boolean {
   if (state.errorUntil > at || state.completedUntil > at || state.interruptedUntil > at) return true;
-  if (state.approvalId !== null) return true;
+  if (state.approvalId !== null || state.questionId !== null) return true;
   if (!state.running) return false;
   // `quiet` is reached at ten seconds and then only buckets change; both matter.
   return state.agentState !== 'quiet' || silenceLevelOf(silenceOf(state, at)) < 3;

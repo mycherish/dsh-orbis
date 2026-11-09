@@ -131,14 +131,15 @@ function humanDuration(ms) {
 }
 function silenceLabel(input) {
   const level = silenceLevelOf(input.ms);
+  const blockNoun = input.waitingQuestion === true ? "\u4F60\u56DE\u7B54" : "\u4F60\u7684\u5BA1\u6279";
   if (level === 0) {
-    if (input.waitingApproval) return "\u6B63\u5728\u7B49\u5F85\u4F60\u7684\u5BA1\u6279\u3002";
+    if (input.waitingApproval) return `\u6B63\u5728\u7B49\u5F85${blockNoun}\u3002`;
     if (input.activeTools > 0) return "\u5DE5\u5177\u6B63\u5728\u6267\u884C\uFF0C\u7B49\u5F85\u8F93\u51FA\u3002";
     if (input.responding) return "\u6A21\u578B\u6B63\u5728\u7EC4\u7EC7\u7B54\u590D\u3002";
     return input.turnOpen ? "\u6A21\u578B\u6B63\u5728\u5904\u7406\u8BF7\u6C42\u3002" : "\u5F53\u524D\u6CA1\u6709\u65B0\u7684\u6D3B\u52A8\u3002";
   }
   const elapsed = humanDuration(input.ms);
-  if (input.waitingApproval) return `\u5DF2\u7B49\u5F85\u4F60\u7684\u5BA1\u6279 ${elapsed}\uFF0C\u4EFB\u52A1\u6682\u505C\u5728\u6B64\u5904\u3002`;
+  if (input.waitingApproval) return `\u5DF2\u7B49\u5F85${blockNoun} ${elapsed}\uFF0C\u4EFB\u52A1\u6682\u505C\u5728\u6B64\u5904\u3002`;
   if (input.activeTools > 0) {
     return level >= 2 ? `\u5DE5\u5177\u4ECD\u5728\u6267\u884C\uFF0C\u5DF2 ${elapsed} \u6CA1\u6709\u65B0\u7684\u8F93\u51FA\u3002` : `\u5DE5\u5177\u6267\u884C\u4E2D\uFF0C\u5DF2 ${elapsed} \u6CA1\u6709\u65B0\u7684\u8F93\u51FA\u3002`;
   }
@@ -159,6 +160,7 @@ function createMachine(now) {
     phase: "none",
     openTools: [],
     approvalId: null,
+    questionId: null,
     errorUntil: 0,
     interruptedUntil: 0,
     completedUntil: 0,
@@ -175,7 +177,7 @@ function quietLevelFor(state, at) {
   return silenceLevelOf(silenceOf(state, at));
 }
 function computeState(state, at) {
-  if (state.approvalId !== null) return "waiting";
+  if (state.approvalId !== null || state.questionId !== null) return "waiting";
   if (state.errorUntil > at) return "error";
   if (state.interruptedUntil > at) return "interrupted";
   if (state.completedUntil > at) return "completed";
@@ -209,6 +211,7 @@ function applyEvent(input, event) {
         state.phase = state.phase === "none" ? "none" : state.phase;
         clearHolds(state);
         state.approvalId = null;
+        state.questionId = null;
       } else {
         state.phase = "none";
       }
@@ -219,6 +222,7 @@ function applyEvent(input, event) {
       state.step = void 0;
       state.phase = "none";
       state.approvalId = null;
+      state.questionId = null;
       state.lastActivityAt = event.at;
       clearHolds(state);
       break;
@@ -240,6 +244,7 @@ function applyEvent(input, event) {
       state.running = true;
       state.phase = "none";
       state.approvalId = null;
+      state.questionId = null;
       if (!state.openTools.includes(event.id)) state.openTools = [...state.openTools, event.id];
       state.lastActivityAt = event.at;
       clearHolds(state);
@@ -256,12 +261,22 @@ function applyEvent(input, event) {
       state.approvalId = null;
       state.lastActivityAt = event.at;
       break;
+    case "question-asked":
+      state.questionId = event.id;
+      state.lastActivityAt = event.at;
+      break;
+    case "question-settled":
+      state.questionId = null;
+      state.lastActivityAt = event.at;
+      break;
     case "turn-end":
       state.running = false;
       state.openTools = [];
       state.phase = "none";
       state.approvalId = null;
+      state.questionId = null;
       state.step = void 0;
+      if (state.turn !== void 0) state.lastClosedTurn = state.turn;
       switch (event.reason) {
         case "completed":
         case "max-tokens":
@@ -290,6 +305,7 @@ function applyEvent(input, event) {
       break;
     case "error":
       state.approvalId = null;
+      state.questionId = null;
       state.phase = "none";
       state.errorUntil = event.at + ERROR_HOLD_MS;
       state.lastActivityAt = event.at;
@@ -302,7 +318,7 @@ function applyEvent(input, event) {
 }
 function hasPendingHold(state, at) {
   if (state.errorUntil > at || state.completedUntil > at || state.interruptedUntil > at) return true;
-  if (state.approvalId !== null) return true;
+  if (state.approvalId !== null || state.questionId !== null) return true;
   if (!state.running) return false;
   return state.agentState !== "quiet" || silenceLevelOf(silenceOf(state, at)) < 3;
 }
@@ -659,7 +675,7 @@ function toolActivity(input) {
   };
   return withTarget(base, target);
 }
-function approvalActivity(at, id, sessionId, toolName, location) {
+function approvalActivity(at, id, sessionId, toolName, detail) {
   const target = typeof toolName === "string" ? redactPath(toolName) : void 0;
   const base = {
     id,
@@ -670,10 +686,28 @@ function approvalActivity(at, id, sessionId, toolName, location) {
     startedAt: at,
     source: "approval",
     confidence: "high",
-    ...location?.turn === void 0 ? {} : { turn: location.turn },
-    ...location?.step === void 0 ? {} : { step: location.step }
+    ...detail?.callId === void 0 ? {} : { callId: detail.callId },
+    ...detail?.turn === void 0 ? {} : { turn: detail.turn },
+    ...detail?.step === void 0 ? {} : { step: detail.step }
   };
   return withTarget(base, target);
+}
+function questionActivity(at, id, sessionId, toolName, detail) {
+  const toolLabel = typeof toolName === "string" ? clipLabel(toolName, 32) : "";
+  return {
+    id,
+    sessionId,
+    category: "approval",
+    label: "\u7B49\u5F85\u4F60\u56DE\u7B54",
+    status: "running",
+    startedAt: at,
+    source: "approval",
+    confidence: "high",
+    ...toolLabel === "" ? {} : { safeTarget: toolLabel },
+    ...detail?.callId === void 0 ? {} : { callId: detail.callId },
+    ...detail?.turn === void 0 ? {} : { turn: detail.turn },
+    ...detail?.step === void 0 ? {} : { step: detail.step }
+  };
 }
 function errorActivity(at, id, sessionId, code) {
   return {
@@ -758,6 +792,7 @@ var CATEGORY_PHASE = {
   unknown: "analyzing"
 };
 var WINDOW = 3;
+var WAITING_QUESTION_LABEL = "\u7B49\u5F85\u56DE\u7B54";
 function phaseOfCategory(category) {
   return CATEGORY_PHASE[category];
 }
@@ -767,7 +802,13 @@ function isLive(row) {
 function inferPhase(input) {
   const { rows } = input;
   if (input.waitingApproval) {
-    return { phase: "waiting", phaseLabel: PHASE_LABEL.waiting, confidence: "high", reason: "\u6709\u672A\u51B3\u7684\u5BA1\u6279\u8BF7\u6C42" };
+    const question = input.waitingQuestion === true;
+    return {
+      phase: "waiting",
+      phaseLabel: question ? WAITING_QUESTION_LABEL : PHASE_LABEL.waiting,
+      confidence: "high",
+      reason: question ? "\u6709\u672A\u51B3\u7684\u63D0\u95EE\u8BF7\u6C42" : "\u6709\u672A\u51B3\u7684\u5BA1\u6279\u8BF7\u6C42"
+    };
   }
   const live = rows.find(isLive);
   if (live !== void 0) {
@@ -831,7 +872,8 @@ function buildTaskContext(input) {
     rows: input.rows,
     turnOpen: input.turnOpen,
     responding: input.responding,
-    waitingApproval: input.waitingApproval
+    waitingApproval: input.waitingApproval,
+    waitingQuestion: input.waitingQuestion === true
   });
   const title = safeLine(input.sessionTitle, MAX_TITLE) ?? "";
   const planItem = (input.plan ?? []).map(clipPlan).find((item) => item !== void 0);
@@ -853,6 +895,9 @@ function buildTaskContext(input) {
     extraTokens: 0,
     mode: "event-only"
   };
+  if (input.waitingApproval) {
+    context.waitingReason = input.waitingQuestion === true ? "question" : "approval";
+  }
   const action = currentActionOf(input.rows);
   if (action !== void 0) context.currentAction = action;
   if (planItem !== void 0) context.nextStep = planItem;
@@ -1179,7 +1224,7 @@ var OrbitHub = class {
         this.closeStreamRows(record, epoch);
         this.pushActivity(record, row);
         for (const activity of record.activities) {
-          if (activity.category === "approval" && activity.status === "running") {
+          if (activity.category === "approval" && activity.status === "running" && activity.callId === callId) {
             this.settleRow(record, activity.id, "success", epoch);
           }
         }
@@ -1212,6 +1257,7 @@ var OrbitHub = class {
         const approvalId = asString(recordOf(data, "id"));
         if (approvalId === void 0) return;
         const toolName = asString(recordOf(data, "toolName"));
+        const callId = asString(recordOf(data, "callId"));
         const turn = asNumber2(recordOf(data, "turn"));
         const step = asNumber2(recordOf(data, "step"));
         record.metrics.approvals += 1;
@@ -1224,12 +1270,13 @@ var OrbitHub = class {
             record.activities[bridgeIndex] = {
               ...bridge,
               id: approvalId,
+              ...callId === void 0 ? {} : { callId },
               ...turn === void 0 ? {} : { turn },
               ...step === void 0 ? {} : { step }
             };
           }
         } else {
-          this.pushActivity(record, approvalActivity(epoch, approvalId, sessionId, toolName, { turn, step }));
+          this.pushActivity(record, approvalActivity(epoch, approvalId, sessionId, toolName, { turn, step, callId }));
         }
         applyEvent(record.machine, { kind: "approval-asked", id: approvalId, at });
         this.touch(record, at);
@@ -1306,7 +1353,11 @@ var OrbitHub = class {
     const signal = streamSignalOf(frame);
     if (signal === void 0) return;
     const record = this.ensure(sessionId);
-    if (signal.turn !== void 0 && record.machine.turn !== void 0 && signal.turn < record.machine.turn) {
+    if (signal.turn === void 0) {
+      if (!record.machine.running) return;
+    } else if (record.machine.lastClosedTurn !== void 0 && signal.turn <= record.machine.lastClosedTurn) {
+      return;
+    } else if (record.machine.turn !== void 0 && signal.turn < record.machine.turn) {
       return;
     }
     const at = this.mono();
@@ -1342,9 +1393,48 @@ var OrbitHub = class {
     const at = this.mono();
     const id = callId === void 0 ? this.nextId("bridge") : `bridge:${callId}`;
     if (!record.activities.some((row) => row.id === id)) {
-      this.pushActivity(record, approvalActivity(epoch, id, sessionId, toolName));
+      this.pushActivity(record, approvalActivity(epoch, id, sessionId, toolName, { callId }));
     }
     applyEvent(record.machine, { kind: "approval-asked", id, at });
+    this.touch(record, at);
+  }
+  /**
+   * Observe a `user-questions/request`.
+   *
+   * The Agent is blocked on the human, exactly like an approval, so the published
+   * state is the same `waiting` — but the HUD must not tell the user to approve
+   * something that is really a question. Only the Agent and the call id are read;
+   * the questions themselves are user-facing content and never reach the DTO.
+   *
+   * `settled` runs when the waterfall resolves or rejects. It looks the record up
+   * instead of creating one, so an answer arriving after the Session was evicted
+   * cannot resurrect it.
+   */
+  handleQuestion(sessionId, toolName, callId) {
+    if (typeof sessionId !== "string" || sessionId === "") return;
+    const record = this.ensure(sessionId);
+    const epoch = this.clock();
+    const at = this.mono();
+    const id = callId === void 0 ? this.nextId("question") : `question:${callId}`;
+    if (!record.activities.some((row) => row.id === id)) {
+      this.pushActivity(record, questionActivity(epoch, id, sessionId, toolName, {
+        callId,
+        ...record.machine.turn === void 0 ? {} : { turn: record.machine.turn },
+        ...record.machine.step === void 0 ? {} : { step: record.machine.step }
+      }));
+    }
+    applyEvent(record.machine, { kind: "question-asked", id, at });
+    this.touch(record, at);
+  }
+  /** The question was answered, declined or cancelled: stop reporting a block. */
+  handleQuestionSettled(sessionId) {
+    if (typeof sessionId !== "string" || sessionId === "") return;
+    const record = this.records.get(sessionId);
+    if (record === void 0) return;
+    const at = this.mono();
+    const id = record.machine.questionId;
+    if (id !== null) this.settleRow(record, id, "success", this.clock());
+    applyEvent(record.machine, { kind: "question-settled", at });
     this.touch(record, at);
   }
   handleError(sessionId, code) {
@@ -1419,10 +1509,12 @@ var OrbitHub = class {
     const record = resolved === void 0 ? void 0 : this.records.get(resolved);
     if (record === void 0) return emptyTaskContext(this.clock());
     const at = this.mono();
+    const waiting = record.machine.approvalId !== null ? "approval" : record.machine.questionId !== null ? "question" : void 0;
     const silenceInput = {
       ms: silenceOf(record.machine, at),
       activeTools: record.machine.openTools.length,
-      waitingApproval: record.machine.approvalId !== null,
+      waitingApproval: waiting !== void 0,
+      waitingQuestion: waiting === "question",
       responding: record.machine.phase === "responding",
       turnOpen: record.machine.running
     };
@@ -1433,7 +1525,8 @@ var OrbitHub = class {
       plan: record.plan,
       turnOpen: record.machine.running,
       responding: record.machine.phase === "responding",
-      waitingApproval: record.machine.approvalId !== null,
+      waitingApproval: waiting !== void 0,
+      waitingQuestion: waiting === "question",
       silence: detectSilence(silenceInput)
     });
   }
@@ -1728,6 +1821,28 @@ function apply(ctx) {
     }
     return next();
   }, GLOBAL), "neural-orbit: approvals");
+  ctx.effect(() => ctx.on("user-questions/request", (request, next) => {
+    let sessionId;
+    try {
+      sessionId = sessionIdOf(request?.agent);
+      if (sessionId !== void 0) {
+        hub.handleQuestion(sessionId, typeof request.toolName === "string" ? request.toolName : void 0, idOf(request.callId));
+      }
+    } catch (error) {
+      report("question observation", error);
+    }
+    const pending = next();
+    const released = () => {
+      if (sessionId === void 0) return;
+      try {
+        hub.handleQuestionSettled(sessionId);
+      } catch (error) {
+        report("question release", error);
+      }
+    };
+    void Promise.resolve(pending).then(released, released);
+    return pending;
+  }, GLOBAL), "neural-orbit: user questions");
   const ensureRoutes = () => {
     if (routes !== void 0) return true;
     let webServer;

@@ -259,7 +259,18 @@ export const STATUS_SENTENCE: Record<OrbitAgentState, string> = {
   error: '最近一次操作没有成功，可在工作区查看细节。',
 };
 
-export function statusSentence(state: OrbitAgentState): string {
+/**
+ * The fixed sentence for a state.
+ *
+ * `waiting` covers two different requests, so the reason decides the wording —
+ * telling someone to approve an approval that is really a question is exactly
+ * the kind of confident-but-wrong line this HUD must never print.
+ */
+export function statusSentence(
+  state: OrbitAgentState,
+  waitingReason?: 'approval' | 'question',
+): string {
+  if (state === 'waiting' && waitingReason === 'question') return '正在等待你回答问题。';
   return STATUS_SENTENCE[state] ?? STATUS_SENTENCE.idle;
 }
 
@@ -316,7 +327,7 @@ export function currentStatusText(
   }
   const action = typeof task.currentAction === 'string' ? task.currentAction.trim() : '';
   if (action !== '') return action;
-  return statusSentence(state);
+  return statusSentence(state, task.waitingReason);
 }
 
 /**

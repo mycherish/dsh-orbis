@@ -75,6 +75,14 @@ interface HostContextLike {
     options?: ListenerOptions,
   ): () => void;
   on(
+    name: 'user-questions/request',
+    listener: (
+      request: { agent: AgentLike; callId?: string; toolName?: string },
+      next: () => Promise<unknown>,
+    ) => Promise<unknown>,
+    options?: ListenerOptions,
+  ): () => void;
+  on(
     name: 'approval/request',
     listener: (
       request: { agent: AgentLike; toolName?: string; callId?: string },
@@ -236,6 +244,33 @@ export function apply(ctx: HostContextLike): void {
     }
     return next();
   }, GLOBAL), 'neural-orbit: approvals');
+
+  // Waterfall: observe the ask, then always delegate the decision. The questions
+  // themselves are content and are never read — only the Agent and the call id.
+  // Settling is observed on the same promise the pipeline awaits, so a cancelled
+  // or rejected ask stops reporting a block too.
+  ctx.effect(() => ctx.on('user-questions/request', (request, next) => {
+    let sessionId: string | undefined;
+    try {
+      sessionId = sessionIdOf(request?.agent);
+      if (sessionId !== undefined) {
+        hub.handleQuestion(sessionId, typeof request.toolName === 'string' ? request.toolName : undefined, idOf(request.callId));
+      }
+    } catch (error) {
+      report('question observation', error);
+    }
+    const pending = next();
+    const released = (): void => {
+      if (sessionId === undefined) return;
+      try {
+        hub.handleQuestionSettled(sessionId);
+      } catch (error) {
+        report('question release', error);
+      }
+    };
+    void Promise.resolve(pending).then(released, released);
+    return pending;
+  }, GLOBAL), 'neural-orbit: user questions');
 
   /**
    * The web carrier may activate after this row. Registration is retried from

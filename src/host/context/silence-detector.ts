@@ -37,8 +37,10 @@ export interface SilenceInput {
   ms: number;
   /** A tool call is still open. */
   activeTools: number;
-  /** An approval is outstanding. */
+  /** The Agent is blocked on the human (an approval or a question). */
   waitingApproval: boolean;
+  /** The block is a question rather than an approval; only the wording differs. */
+  waitingQuestion?: boolean;
   /** The model is still streaming text (it is producing, not silent). */
   responding: boolean;
   /** The Turn is still open. */
@@ -62,15 +64,16 @@ function humanDuration(ms: number): string {
  */
 export function silenceLabel(input: SilenceInput): string {
   const level = silenceLevelOf(input.ms);
+  const blockNoun = input.waitingQuestion === true ? '你回答' : '你的审批';
   if (level === 0) {
-    if (input.waitingApproval) return '正在等待你的审批。';
+    if (input.waitingApproval) return `正在等待${blockNoun}。`;
     if (input.activeTools > 0) return '工具正在执行，等待输出。';
     if (input.responding) return '模型正在组织答复。';
     return input.turnOpen ? '模型正在处理请求。' : '当前没有新的活动。';
   }
 
   const elapsed = humanDuration(input.ms);
-  if (input.waitingApproval) return `已等待你的审批 ${elapsed}，任务暂停在此处。`;
+  if (input.waitingApproval) return `已等待${blockNoun} ${elapsed}，任务暂停在此处。`;
   if (input.activeTools > 0) {
     return level >= 2
       ? `工具仍在执行，已 ${elapsed} 没有新的输出。`

@@ -131,6 +131,12 @@ export interface OrbitTaskContext {
   silence: OrbitSilence;
   /** How trustworthy the phase / current action are. */
   confidence: OrbitConfidence;
+  /**
+   * Set only while the Agent is blocked on the human, and only to say *what* it
+   * is blocked on: an approval to decide, or a question to answer. Both publish
+   * the same `waiting` state; only the sentence differs.
+   */
+  waitingReason?: 'approval' | 'question';
   /** This plugin never calls a model; the field exists so the UI can say so. */
   extraTokens: 0;
   mode: 'event-only';

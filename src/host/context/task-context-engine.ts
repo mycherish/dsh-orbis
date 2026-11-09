@@ -39,8 +39,10 @@ export interface TaskContextInput {
   turnOpen: boolean;
   /** Model produced text in this step? */
   responding: boolean;
-  /** Approval outstanding? */
+  /** Blocked on the human? */
   waitingApproval: boolean;
+  /** The block is a question rather than an approval. */
+  waitingQuestion?: boolean;
   /** The silence observation (already bucketed). */
   silence: OrbitSilence;
 }
@@ -79,6 +81,7 @@ export function buildTaskContext(input: TaskContextInput): OrbitTaskContext {
     turnOpen: input.turnOpen,
     responding: input.responding,
     waitingApproval: input.waitingApproval,
+    waitingQuestion: input.waitingQuestion === true,
   });
 
   // A title is prose the human may have written; it is bounded and path-redacted
@@ -104,6 +107,10 @@ export function buildTaskContext(input: TaskContextInput): OrbitTaskContext {
     extraTokens: 0,
     mode: 'event-only',
   };
+
+  if (input.waitingApproval) {
+    context.waitingReason = input.waitingQuestion === true ? 'question' : 'approval';
+  }
 
   const action = currentActionOf(input.rows);
   if (action !== undefined) context.currentAction = action;

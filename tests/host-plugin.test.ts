@@ -97,6 +97,7 @@ describe('host plugin wiring', () => {
         'agent/turn-stopping',
         'approval/request',
         'session/event',
+        'user-questions/request',
       ]);
       expect(host.routes.map((route) => route.path).sort()).toEqual([
         '/api/neural-orbit/events',
@@ -241,6 +242,66 @@ describe('host plugin wiring', () => {
         time: T0,
         data: { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"ls"}' },
       })).not.toThrow();
+    } finally {
+      host.restoreConsole();
+    }
+  });
+
+  /*
+   * The question waterfall is the one signal the plugin used to miss entirely, so
+   * the HUD kept reporting "executing" while the Agent sat waiting for an answer.
+   */
+  it('observes a question waterfall, reports waiting, then releases it', async () => {
+    const host = fakeHost();
+    try {
+      apply(host.ctx as never);
+      const onEvent = host.listeners.get('session/event') as (session: unknown, event: unknown) => void;
+      const onStatus = host.listeners.get('agent/status') as (payload: unknown) => void;
+      const onQuestion = host.listeners.get('user-questions/request') as (
+        request: unknown,
+        next: () => Promise<unknown>,
+      ) => Promise<unknown>;
+
+      const stateRoute = host.routes.find((route) => route.path === '/api/neural-orbit/state');
+      expect(stateRoute).toBeDefined();
+      const read = async (): Promise<Record<string, unknown>> =>
+        (await (await stateRoute!.resource(new Request('http://local/api/neural-orbit/state?sessionId=s1'))).json()) as Record<string, unknown>;
+
+      onStatus({ agent: { id: 's1' }, status: 'running' });
+      onEvent({ id: 's1' }, {
+        type: 'tool/call',
+        time: T0,
+        data: { turn: 1, step: 1, callId: 'c1', name: 'ask_user_question', arguments: '{}' },
+      });
+
+      let delegated = false;
+      const pending = onQuestion(
+        {
+          agent: { id: 's1' },
+          callId: 'c1',
+          toolName: 'ask_user_question',
+          questions: [{ question: 'SECRET-QUESTION-TEXT' }],
+        },
+        async () => {
+          delegated = true;
+          return { answers: ['ok'] };
+        },
+      );
+      // The waterfall contract: we observe, we never decide.
+      expect(delegated).toBe(true);
+
+      let body = await read();
+      expect(body.agentState).toBe('waiting');
+      const task = body.task as Record<string, unknown>;
+      expect(task.waitingReason).toBe('question');
+      expect(task.phaseLabel).toBe('等待回答');
+      // The question text is content and never reaches the browser.
+      expect(JSON.stringify(body)).not.toContain('SECRET-QUESTION-TEXT');
+
+      await pending;
+      await Promise.resolve();
+      body = await read();
+      expect(body.agentState).not.toBe('waiting');
     } finally {
       host.restoreConsole();
     }

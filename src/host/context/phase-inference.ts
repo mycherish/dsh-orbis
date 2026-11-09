@@ -40,6 +40,8 @@ export interface PhaseInput {
   responding: boolean;
   /** Is an approval outstanding? */
   waitingApproval: boolean;
+  /** Is the Agent blocked on a question rather than on an approval? */
+  waitingQuestion?: boolean;
 }
 
 export interface PhaseResult {
@@ -52,6 +54,15 @@ export interface PhaseResult {
 
 /** How many recent rows the inference window looks at. */
 const WINDOW = 3;
+
+/**
+ * The phase label for a pending question.
+ *
+ * Kept local to the Host rather than added to `PHASE_LABEL`: `OrbitTaskPhase`
+ * has exactly one waiting member, and a second label would imply a state the
+ * client has no colour, icon or animation for.
+ */
+const WAITING_QUESTION_LABEL = '等待回答';
 
 function phaseOfCategory(category: OrbitToolCategory): OrbitTaskPhase {
   return CATEGORY_PHASE[category];
@@ -77,7 +88,14 @@ export function inferPhase(input: PhaseInput): PhaseResult {
   const { rows } = input;
 
   if (input.waitingApproval) {
-    return { phase: 'waiting', phaseLabel: PHASE_LABEL.waiting, confidence: 'high', reason: '有未决的审批请求' };
+    // Same phase, different request: the Agent wants an answer, not a verdict.
+    const question = input.waitingQuestion === true;
+    return {
+      phase: 'waiting',
+      phaseLabel: question ? WAITING_QUESTION_LABEL : PHASE_LABEL.waiting,
+      confidence: 'high',
+      reason: question ? '有未决的提问请求' : '有未决的审批请求',
+    };
   }
 
   const live = rows.find(isLive);

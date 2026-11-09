@@ -39,6 +39,7 @@ import {
   abandonActivity,
   approvalActivity,
   errorActivity,
+  questionActivity,
   retryActivity,
   settledActivity,
   toolActivity,
@@ -384,9 +385,17 @@ export class OrbitHub {
 
         this.closeStreamRows(record, epoch);
         this.pushActivity(record, row);
-        // An approval waiting on this call resolves the moment the tool runs.
+        // An approval waiting on *this* call resolves the moment that tool runs.
+        // Correlating by callId matters: with two asks outstanding, settling every
+        // running approval row faked an "allowed" verdict for one nobody approved.
+        // A row without a callId cannot be attributed to this call, so it is left
+        // for `approval/decided` (or `turn/end`) to settle.
         for (const activity of record.activities) {
-          if (activity.category === 'approval' && activity.status === 'running') {
+          if (
+            activity.category === 'approval'
+            && activity.status === 'running'
+            && activity.callId === callId
+          ) {
             this.settleRow(record, activity.id, 'success', epoch);
           }
         }
@@ -425,6 +434,7 @@ export class OrbitHub {
         const approvalId = asString(recordOf(data, 'id'));
         if (approvalId === undefined) return;
         const toolName = asString(recordOf(data, 'toolName'));
+        const callId = asString(recordOf(data, 'callId'));
         const turn = asNumber(recordOf(data, 'turn'));
         const step = asNumber(recordOf(data, 'step'));
         record.metrics.approvals += 1;
@@ -437,12 +447,13 @@ export class OrbitHub {
             record.activities[bridgeIndex] = {
               ...bridge,
               id: approvalId,
+              ...(callId === undefined ? {} : { callId }),
               ...(turn === undefined ? {} : { turn }),
               ...(step === undefined ? {} : { step }),
             };
           }
         } else {
-          this.pushActivity(record, approvalActivity(epoch, approvalId, sessionId, toolName, { turn, step }));
+          this.pushActivity(record, approvalActivity(epoch, approvalId, sessionId, toolName, { turn, step, callId }));
         }
         applyEvent(record.machine, { kind: 'approval-asked', id: approvalId, at });
         this.touch(record, at);
@@ -526,7 +537,17 @@ export class OrbitHub {
     const signal = streamSignalOf(frame);
     if (signal === undefined) return;
     const record = this.ensure(sessionId);
-    if (signal.turn !== undefined && record.machine.turn !== undefined && signal.turn < record.machine.turn) {
+    /*
+     * A frame must prove it belongs to the live Turn. DSH's delta variants carry
+     * no Turn at all, so the only usable evidence is that the machine still has a
+     * Turn open — otherwise a frame still in flight when the Turn ended would
+     * push `completed` / `interrupted` / `error` back to `responding`.
+     */
+    if (signal.turn === undefined) {
+      if (!record.machine.running) return;
+    } else if (record.machine.lastClosedTurn !== undefined && signal.turn <= record.machine.lastClosedTurn) {
+      return;
+    } else if (record.machine.turn !== undefined && signal.turn < record.machine.turn) {
       return;
     }
     const at = this.mono();
@@ -565,9 +586,50 @@ export class OrbitHub {
     const at = this.mono();
     const id = callId === undefined ? this.nextId('bridge') : `bridge:${callId}`;
     if (!record.activities.some((row) => row.id === id)) {
-      this.pushActivity(record, approvalActivity(epoch, id, sessionId, toolName));
+      this.pushActivity(record, approvalActivity(epoch, id, sessionId, toolName, { callId }));
     }
     applyEvent(record.machine, { kind: 'approval-asked', id, at });
+    this.touch(record, at);
+  }
+
+  /**
+   * Observe a `user-questions/request`.
+   *
+   * The Agent is blocked on the human, exactly like an approval, so the published
+   * state is the same `waiting` — but the HUD must not tell the user to approve
+   * something that is really a question. Only the Agent and the call id are read;
+   * the questions themselves are user-facing content and never reach the DTO.
+   *
+   * `settled` runs when the waterfall resolves or rejects. It looks the record up
+   * instead of creating one, so an answer arriving after the Session was evicted
+   * cannot resurrect it.
+   */
+  handleQuestion(sessionId: string, toolName?: string, callId?: string): void {
+    if (typeof sessionId !== 'string' || sessionId === '') return;
+    const record = this.ensure(sessionId);
+    const epoch = this.clock();
+    const at = this.mono();
+    const id = callId === undefined ? this.nextId('question') : `question:${callId}`;
+    if (!record.activities.some((row) => row.id === id)) {
+      this.pushActivity(record, questionActivity(epoch, id, sessionId, toolName, {
+        callId,
+        ...(record.machine.turn === undefined ? {} : { turn: record.machine.turn }),
+        ...(record.machine.step === undefined ? {} : { step: record.machine.step }),
+      }));
+    }
+    applyEvent(record.machine, { kind: 'question-asked', id, at });
+    this.touch(record, at);
+  }
+
+  /** The question was answered, declined or cancelled: stop reporting a block. */
+  handleQuestionSettled(sessionId: string): void {
+    if (typeof sessionId !== 'string' || sessionId === '') return;
+    const record = this.records.get(sessionId);
+    if (record === undefined) return;
+    const at = this.mono();
+    const id = record.machine.questionId;
+    if (id !== null) this.settleRow(record, id, 'success', this.clock());
+    applyEvent(record.machine, { kind: 'question-settled', at });
     this.touch(record, at);
   }
 
@@ -652,10 +714,18 @@ export class OrbitHub {
     if (record === undefined) return emptyTaskContext(this.clock());
 
     const at = this.mono();
+    /* The Agent is blocked on the human when either ask is outstanding; which one
+     * it is changes the wording, never the state. */
+    const waiting = record.machine.approvalId !== null
+      ? 'approval'
+      : record.machine.questionId !== null
+        ? 'question'
+        : undefined;
     const silenceInput: SilenceInput = {
       ms: silenceOf(record.machine, at),
       activeTools: record.machine.openTools.length,
-      waitingApproval: record.machine.approvalId !== null,
+      waitingApproval: waiting !== undefined,
+      waitingQuestion: waiting === 'question',
       responding: record.machine.phase === 'responding',
       turnOpen: record.machine.running,
     };
@@ -666,7 +736,8 @@ export class OrbitHub {
       plan: record.plan,
       turnOpen: record.machine.running,
       responding: record.machine.phase === 'responding',
-      waitingApproval: record.machine.approvalId !== null,
+      waitingApproval: waiting !== undefined,
+      waitingQuestion: waiting === 'question',
       silence: detectSilence(silenceInput),
     });
   }

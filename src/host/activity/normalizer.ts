@@ -14,7 +14,7 @@ import {
 import { classify, wantsTarget } from './classifier';
 import {
   clipLabel,
-  redactPath,
+  displayNameForTool,
   safeErrorLabel,
   targetFromArguments,
   type RedactedTarget,
@@ -74,7 +74,13 @@ export interface ActivityDetail {
   callId?: string;
 }
 
-/** Row for an approval ask; carries no tool arguments by construction. */
+/**
+ * Row for an approval ask; carries no tool arguments by construction.
+ *
+ * The tool name survives as a name (clipped, path-looking ones reduced to their
+ * basename) — an approval that says only 「读取敏感配置文件」 tells the user
+ * nothing about what they are being asked to allow.
+ */
 export function approvalActivity(
   at: number,
   id: string,
@@ -82,8 +88,8 @@ export function approvalActivity(
   toolName?: string,
   detail?: ActivityDetail,
 ): OrbitActivity {
-  const target = typeof toolName === 'string' ? redactPath(toolName) : undefined;
-  const base: OrbitActivity = {
+  const name = displayNameForTool(toolName);
+  return {
     id,
     sessionId,
     category: 'approval',
@@ -92,11 +98,11 @@ export function approvalActivity(
     startedAt: at,
     source: 'approval',
     confidence: 'high',
+    ...(name === undefined ? {} : { safeTarget: name }),
     ...(detail?.callId === undefined ? {} : { callId: detail.callId }),
     ...(detail?.turn === undefined ? {} : { turn: detail.turn }),
     ...(detail?.step === undefined ? {} : { step: detail.step }),
   };
-  return withTarget(base, target);
 }
 
 /**
@@ -117,7 +123,7 @@ export function questionActivity(
   toolName?: string,
   detail?: ActivityDetail,
 ): OrbitActivity {
-  const toolLabel = typeof toolName === 'string' ? clipLabel(toolName, 32) : '';
+  const toolLabel = displayNameForTool(toolName) ?? '';
   return {
     id,
     sessionId,

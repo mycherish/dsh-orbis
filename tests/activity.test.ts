@@ -260,6 +260,20 @@ describe('activity rows', () => {
     expect(retry.category).toBe('reasoning');
   });
 
+  /*
+   * An approval row must say *which* tool is asking. Sending the tool name through
+   * the path redactor turned `mcp__vault__read_credential` into
+   * 「读取敏感配置文件」 — truthfully boring, and useless for deciding anything.
+   */
+  it('shows a tool name as a name, and only treats path-shaped ones as paths', () => {
+    expect(approvalActivity(at, 'a1', sessionId, 'mcp__vault__read_credential').safeTarget)
+      .toBe('mcp__vault__read_credential');
+    expect(approvalActivity(at, 'a2', sessionId, 'bash').safeTarget).toBe('bash');
+    // A name that really is a path still collapses to its basename.
+    expect(approvalActivity(at, 'a3', sessionId, '/usr/local/bin/bash').safeTarget).toBe('bash');
+    expect(approvalActivity(at, 'a4', sessionId).safeTarget).toBeUndefined();
+  });
+
   it('settles a row with a duration and keeps it immutable', () => {
     const row = toolActivity({ id: 'c', sessionId, rawName: 'grep', argumentsJson: '{}', at });
     const settled = settledActivity(row, 'success', at + 120);

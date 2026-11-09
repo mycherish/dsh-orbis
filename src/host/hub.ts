@@ -438,22 +438,34 @@ export class OrbitHub {
         const turn = asNumber(recordOf(data, 'turn'));
         const step = asNumber(recordOf(data, 'step'));
         record.metrics.approvals += 1;
-        const bridgeIndex = record.activities.findIndex(
-          (row) => row.category === 'approval' && row.status === 'running' && row.id.startsWith('bridge:'),
-        );
-        if (bridgeIndex >= 0) {
-          const bridge = record.activities[bridgeIndex];
-          if (bridge !== undefined) {
-            record.activities[bridgeIndex] = {
-              ...bridge,
-              id: approvalId,
-              ...(callId === undefined ? {} : { callId }),
-              ...(turn === undefined ? {} : { turn }),
-              ...(step === undefined ? {} : { step }),
-            };
-          }
+        /*
+         * The waterfall side already saw this ask and left a placeholder row keyed
+         * by callId; this durable event names the real id. Adopting "the first
+         * running bridge row" renamed the wrong row whenever two asks were in
+         * flight, so the match is on callId now. When the event carries no callId
+         * there is nothing to attribute and the old first-match fallback stays.
+         */
+        const bridgeIndex = record.activities.findIndex((row) => {
+          if (row.category !== 'approval' || row.status !== 'running') return false;
+          if (!row.id.startsWith('bridge:')) return false;
+          return callId === undefined ? true : row.callId === callId;
+        });
+        const adopted = bridgeIndex >= 0 ? record.activities[bridgeIndex] : undefined;
+        if (adopted !== undefined) {
+          record.activities[bridgeIndex] = {
+            ...adopted,
+            id: approvalId,
+            ...(callId === undefined ? {} : { callId }),
+            ...(turn === undefined ? {} : { turn }),
+            ...(step === undefined ? {} : { step }),
+          };
         } else {
           this.pushActivity(record, approvalActivity(epoch, approvalId, sessionId, toolName, { turn, step, callId }));
+        }
+        // The placeholder's id leaves the blocking set as the real one enters it,
+        // so the count of outstanding asks stays honest.
+        if (adopted !== undefined) {
+          applyEvent(record.machine, { kind: 'approval-decided', id: adopted.id, at });
         }
         applyEvent(record.machine, { kind: 'approval-asked', id: approvalId, at });
         this.touch(record, at);
@@ -465,7 +477,7 @@ export class OrbitHub {
         const approvalId = asString(recordOf(data, 'id'));
         const outcome = asString(recordOf(data, 'outcome'));
         this.settleRow(record, approvalId ?? '', this.approvalStatus(outcome), epoch);
-        applyEvent(record.machine, { kind: 'approval-decided', at });
+        applyEvent(record.machine, { kind: 'approval-decided', ...(approvalId === undefined ? {} : { id: approvalId }), at });
         this.touch(record, at);
         return;
       }
@@ -621,15 +633,22 @@ export class OrbitHub {
     this.touch(record, at);
   }
 
-  /** The question was answered, declined or cancelled: stop reporting a block. */
-  handleQuestionSettled(sessionId: string): void {
+  /**
+   * The question was answered, declined or cancelled: drop that one block.
+   *
+   * `callId` names which ask settled. Without it the newest open ask is settled,
+   * which is the best a caller that only saw "something finished" can do.
+   */
+  handleQuestionSettled(sessionId: string, callId?: string): void {
     if (typeof sessionId !== 'string' || sessionId === '') return;
     const record = this.records.get(sessionId);
     if (record === undefined) return;
     const at = this.mono();
-    const id = record.machine.questionId;
-    if (id !== null) this.settleRow(record, id, 'success', this.clock());
-    applyEvent(record.machine, { kind: 'question-settled', at });
+    const id = callId === undefined
+      ? record.machine.questionIds[record.machine.questionIds.length - 1]
+      : `question:${callId}`;
+    if (id !== undefined) this.settleRow(record, id, 'success', this.clock());
+    applyEvent(record.machine, { kind: 'question-settled', ...(id === undefined ? {} : { id }), at });
     this.touch(record, at);
   }
 
@@ -716,9 +735,9 @@ export class OrbitHub {
     const at = this.mono();
     /* The Agent is blocked on the human when either ask is outstanding; which one
      * it is changes the wording, never the state. */
-    const waiting = record.machine.approvalId !== null
+    const waiting = record.machine.approvalIds.length > 0
       ? 'approval'
-      : record.machine.questionId !== null
+      : record.machine.questionIds.length > 0
         ? 'question'
         : undefined;
     const silenceInput: SilenceInput = {

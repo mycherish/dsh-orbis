@@ -47,10 +47,10 @@ export type OrbitMachineEvent =
   | { kind: 'tool-start'; id: string; at: number }
   | { kind: 'tool-end'; id: string; at: number }
   | { kind: 'approval-asked'; id: string; at: number }
-  | { kind: 'approval-decided'; at: number }
+  | { kind: 'approval-decided'; id?: string; at: number }
   /** A `user-questions/request`: also blocked on the human, but a question. */
   | { kind: 'question-asked'; id: string; at: number }
-  | { kind: 'question-settled'; at: number }
+  | { kind: 'question-settled'; id?: string; at: number }
   | { kind: 'turn-end'; reason: TurnEndKind; at: number }
   | { kind: 'turn-stopping'; at: number }
   /** A step was interrupted but its Turn may still continue (`assistant/message.interrupted`). */
@@ -68,15 +68,18 @@ export interface MachineState {
   phase: StreamPhase;
   /** Tool call ids that started and have not settled. */
   openTools: string[];
-  /** The approval ask currently blocking progress, if any. */
-  approvalId: string | null;
   /**
-   * The question ask currently blocking progress, if any.
+   * Approval asks currently blocking progress, in arrival order.
    *
-   * Deliberately separate from `approvalId`: the two can be outstanding at the
-   * same time, and settling one must not claim the Agent stopped waiting.
+   * A list, not a slot. Two approvals are genuinely outstanding at once (parallel
+   * tools, or a subagent asking for its own permission), and a single slot let the
+   * second overwrite the first — so deciding the first one cleared a block that
+   * was still there. Kept separate from `questionIds` for the same reason: the two
+   * are different requests and settling one must not speak for the other.
    */
-  questionId: string | null;
+  approvalIds: string[];
+  /** Question asks currently blocking progress, in arrival order. */
+  questionIds: string[];
   /**
    * Highest Turn already closed by `turn/end`.
    *
@@ -108,8 +111,8 @@ export function createMachine(now: number): MachineState {
     running: false,
     phase: 'none',
     openTools: [],
-    approvalId: null,
-    questionId: null,
+    approvalIds: [],
+    questionIds: [],
     errorUntil: 0,
     interruptedUntil: 0,
     completedUntil: 0,
@@ -139,7 +142,7 @@ export function quietLevelFor(state: MachineState, at: number): OrbitSilenceLeve
  * `responding` / `preparing` / `thinking` / `starting`.
  */
 export function computeState(state: MachineState, at: number): OrbitAgentState {
-  if (state.approvalId !== null || state.questionId !== null) return 'waiting';
+  if (state.approvalIds.length > 0 || state.questionIds.length > 0) return 'waiting';
   if (state.errorUntil > at) return 'error';
   if (state.interruptedUntil > at) return 'interrupted';
   if (state.completedUntil > at) return 'completed';
@@ -158,6 +161,16 @@ function settle(state: MachineState, at: number): MachineState {
   state.updatedAt = at;
   state.agentState = computeState(state, at);
   return state;
+}
+
+/** Add an ask id without duplicating it (the same ask can arrive twice). */
+function addAsk(list: string[], id: string): string[] {
+  return list.includes(id) ? list : [...list, id];
+}
+
+/** Remove one ask id, or every one of them when the caller cannot name it. */
+function dropAsk(list: string[], id: string | undefined): string[] {
+  return id === undefined ? [] : list.filter((entry) => entry !== id);
 }
 
 /** Clear the time-boxed holds: new work supersedes a finished run. */
@@ -183,8 +196,8 @@ export function applyEvent(input: MachineState, event: OrbitMachineEvent): Machi
         state.lastActivityAt = event.at;
         state.phase = state.phase === 'none' ? 'none' : state.phase;
         clearHolds(state);
-        state.approvalId = null;
-        state.questionId = null;
+        state.approvalIds = [];
+        state.questionIds = [];
       } else {
         state.phase = 'none';
       }
@@ -195,8 +208,8 @@ export function applyEvent(input: MachineState, event: OrbitMachineEvent): Machi
       state.turn = event.turn;
       state.step = undefined;
       state.phase = 'none';
-      state.approvalId = null;
-      state.questionId = null;
+      state.approvalIds = [];
+      state.questionIds = [];
       state.lastActivityAt = event.at;
       clearHolds(state);
       break;
@@ -221,8 +234,8 @@ export function applyEvent(input: MachineState, event: OrbitMachineEvent): Machi
     case 'tool-start':
       state.running = true;
       state.phase = 'none';
-      state.approvalId = null;
-      state.questionId = null;
+      state.approvalIds = [];
+      state.questionIds = [];
       if (!state.openTools.includes(event.id)) state.openTools = [...state.openTools, event.id];
       state.lastActivityAt = event.at;
       clearHolds(state);
@@ -234,22 +247,22 @@ export function applyEvent(input: MachineState, event: OrbitMachineEvent): Machi
       break;
 
     case 'approval-asked':
-      state.approvalId = event.id;
+      state.approvalIds = addAsk(state.approvalIds, event.id);
       state.lastActivityAt = event.at;
       break;
 
     case 'approval-decided':
-      state.approvalId = null;
+      state.approvalIds = dropAsk(state.approvalIds, event.id);
       state.lastActivityAt = event.at;
       break;
 
     case 'question-asked':
-      state.questionId = event.id;
+      state.questionIds = addAsk(state.questionIds, event.id);
       state.lastActivityAt = event.at;
       break;
 
     case 'question-settled':
-      state.questionId = null;
+      state.questionIds = dropAsk(state.questionIds, event.id);
       state.lastActivityAt = event.at;
       break;
 
@@ -257,8 +270,8 @@ export function applyEvent(input: MachineState, event: OrbitMachineEvent): Machi
       state.running = false;
       state.openTools = [];
       state.phase = 'none';
-      state.approvalId = null;
-      state.questionId = null;
+      state.approvalIds = [];
+      state.questionIds = [];
       state.step = undefined;
       if (state.turn !== undefined) state.lastClosedTurn = state.turn;
       switch (event.reason) {
@@ -292,8 +305,8 @@ export function applyEvent(input: MachineState, event: OrbitMachineEvent): Machi
       break;
 
     case 'error':
-      state.approvalId = null;
-      state.questionId = null;
+      state.approvalIds = [];
+      state.questionIds = [];
       state.phase = 'none';
       state.errorUntil = event.at + ERROR_HOLD_MS;
       state.lastActivityAt = event.at;
@@ -314,7 +327,7 @@ export function applyEvent(input: MachineState, event: OrbitMachineEvent): Machi
  */
 export function hasPendingHold(state: MachineState, at: number): boolean {
   if (state.errorUntil > at || state.completedUntil > at || state.interruptedUntil > at) return true;
-  if (state.approvalId !== null || state.questionId !== null) return true;
+  if (state.approvalIds.length > 0 || state.questionIds.length > 0) return true;
   if (!state.running) return false;
   // `quiet` is reached at ten seconds and then only buckets change; both matter.
   return state.agentState !== 'quiet' || silenceLevelOf(silenceOf(state, at)) < 3;

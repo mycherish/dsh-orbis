@@ -159,8 +159,8 @@ function createMachine(now) {
     running: false,
     phase: "none",
     openTools: [],
-    approvalId: null,
-    questionId: null,
+    approvalIds: [],
+    questionIds: [],
     errorUntil: 0,
     interruptedUntil: 0,
     completedUntil: 0,
@@ -177,7 +177,7 @@ function quietLevelFor(state, at) {
   return silenceLevelOf(silenceOf(state, at));
 }
 function computeState(state, at) {
-  if (state.approvalId !== null || state.questionId !== null) return "waiting";
+  if (state.approvalIds.length > 0 || state.questionIds.length > 0) return "waiting";
   if (state.errorUntil > at) return "error";
   if (state.interruptedUntil > at) return "interrupted";
   if (state.completedUntil > at) return "completed";
@@ -195,6 +195,12 @@ function settle(state, at) {
   state.agentState = computeState(state, at);
   return state;
 }
+function addAsk(list, id) {
+  return list.includes(id) ? list : [...list, id];
+}
+function dropAsk(list, id) {
+  return id === void 0 ? [] : list.filter((entry) => entry !== id);
+}
 function clearHolds(state) {
   state.completedUntil = 0;
   state.errorUntil = 0;
@@ -210,8 +216,8 @@ function applyEvent(input, event) {
         state.lastActivityAt = event.at;
         state.phase = state.phase === "none" ? "none" : state.phase;
         clearHolds(state);
-        state.approvalId = null;
-        state.questionId = null;
+        state.approvalIds = [];
+        state.questionIds = [];
       } else {
         state.phase = "none";
       }
@@ -221,8 +227,8 @@ function applyEvent(input, event) {
       state.turn = event.turn;
       state.step = void 0;
       state.phase = "none";
-      state.approvalId = null;
-      state.questionId = null;
+      state.approvalIds = [];
+      state.questionIds = [];
       state.lastActivityAt = event.at;
       clearHolds(state);
       break;
@@ -243,8 +249,8 @@ function applyEvent(input, event) {
     case "tool-start":
       state.running = true;
       state.phase = "none";
-      state.approvalId = null;
-      state.questionId = null;
+      state.approvalIds = [];
+      state.questionIds = [];
       if (!state.openTools.includes(event.id)) state.openTools = [...state.openTools, event.id];
       state.lastActivityAt = event.at;
       clearHolds(state);
@@ -254,27 +260,27 @@ function applyEvent(input, event) {
       state.lastActivityAt = event.at;
       break;
     case "approval-asked":
-      state.approvalId = event.id;
+      state.approvalIds = addAsk(state.approvalIds, event.id);
       state.lastActivityAt = event.at;
       break;
     case "approval-decided":
-      state.approvalId = null;
+      state.approvalIds = dropAsk(state.approvalIds, event.id);
       state.lastActivityAt = event.at;
       break;
     case "question-asked":
-      state.questionId = event.id;
+      state.questionIds = addAsk(state.questionIds, event.id);
       state.lastActivityAt = event.at;
       break;
     case "question-settled":
-      state.questionId = null;
+      state.questionIds = dropAsk(state.questionIds, event.id);
       state.lastActivityAt = event.at;
       break;
     case "turn-end":
       state.running = false;
       state.openTools = [];
       state.phase = "none";
-      state.approvalId = null;
-      state.questionId = null;
+      state.approvalIds = [];
+      state.questionIds = [];
       state.step = void 0;
       if (state.turn !== void 0) state.lastClosedTurn = state.turn;
       switch (event.reason) {
@@ -304,8 +310,8 @@ function applyEvent(input, event) {
       state.lastActivityAt = event.at;
       break;
     case "error":
-      state.approvalId = null;
-      state.questionId = null;
+      state.approvalIds = [];
+      state.questionIds = [];
       state.phase = "none";
       state.errorUntil = event.at + ERROR_HOLD_MS;
       state.lastActivityAt = event.at;
@@ -318,7 +324,7 @@ function applyEvent(input, event) {
 }
 function hasPendingHold(state, at) {
   if (state.errorUntil > at || state.completedUntil > at || state.interruptedUntil > at) return true;
-  if (state.approvalId !== null || state.questionId !== null) return true;
+  if (state.approvalIds.length > 0 || state.questionIds.length > 0) return true;
   if (!state.running) return false;
   return state.agentState !== "quiet" || silenceLevelOf(silenceOf(state, at)) < 3;
 }
@@ -640,6 +646,17 @@ function redactInlinePaths(value) {
     return target === void 0 ? token : target.value;
   });
 }
+function displayNameForTool(value) {
+  if (typeof value !== "string") return void 0;
+  const name2 = value.trim();
+  if (name2 === "") return void 0;
+  if (!/[\\/]/.test(name2)) {
+    const clipped = clipLabel(name2, 32);
+    return clipped === "" ? void 0 : clipped;
+  }
+  const target = redactPath(name2);
+  return target === void 0 ? void 0 : target.value;
+}
 function clipLabel(value, max = 32) {
   const text = typeof value === "string" ? value.trim() : "";
   if (text === "") return "";
@@ -676,8 +693,8 @@ function toolActivity(input) {
   return withTarget(base, target);
 }
 function approvalActivity(at, id, sessionId, toolName, detail) {
-  const target = typeof toolName === "string" ? redactPath(toolName) : void 0;
-  const base = {
+  const name2 = displayNameForTool(toolName);
+  return {
     id,
     sessionId,
     category: "approval",
@@ -686,14 +703,14 @@ function approvalActivity(at, id, sessionId, toolName, detail) {
     startedAt: at,
     source: "approval",
     confidence: "high",
+    ...name2 === void 0 ? {} : { safeTarget: name2 },
     ...detail?.callId === void 0 ? {} : { callId: detail.callId },
     ...detail?.turn === void 0 ? {} : { turn: detail.turn },
     ...detail?.step === void 0 ? {} : { step: detail.step }
   };
-  return withTarget(base, target);
 }
 function questionActivity(at, id, sessionId, toolName, detail) {
-  const toolLabel = typeof toolName === "string" ? clipLabel(toolName, 32) : "";
+  const toolLabel = displayNameForTool(toolName) ?? "";
   return {
     id,
     sessionId,
@@ -1261,22 +1278,25 @@ var OrbitHub = class {
         const turn = asNumber2(recordOf(data, "turn"));
         const step = asNumber2(recordOf(data, "step"));
         record.metrics.approvals += 1;
-        const bridgeIndex = record.activities.findIndex(
-          (row) => row.category === "approval" && row.status === "running" && row.id.startsWith("bridge:")
-        );
-        if (bridgeIndex >= 0) {
-          const bridge = record.activities[bridgeIndex];
-          if (bridge !== void 0) {
-            record.activities[bridgeIndex] = {
-              ...bridge,
-              id: approvalId,
-              ...callId === void 0 ? {} : { callId },
-              ...turn === void 0 ? {} : { turn },
-              ...step === void 0 ? {} : { step }
-            };
-          }
+        const bridgeIndex = record.activities.findIndex((row) => {
+          if (row.category !== "approval" || row.status !== "running") return false;
+          if (!row.id.startsWith("bridge:")) return false;
+          return callId === void 0 ? true : row.callId === callId;
+        });
+        const adopted = bridgeIndex >= 0 ? record.activities[bridgeIndex] : void 0;
+        if (adopted !== void 0) {
+          record.activities[bridgeIndex] = {
+            ...adopted,
+            id: approvalId,
+            ...callId === void 0 ? {} : { callId },
+            ...turn === void 0 ? {} : { turn },
+            ...step === void 0 ? {} : { step }
+          };
         } else {
           this.pushActivity(record, approvalActivity(epoch, approvalId, sessionId, toolName, { turn, step, callId }));
+        }
+        if (adopted !== void 0) {
+          applyEvent(record.machine, { kind: "approval-decided", id: adopted.id, at });
         }
         applyEvent(record.machine, { kind: "approval-asked", id: approvalId, at });
         this.touch(record, at);
@@ -1287,7 +1307,7 @@ var OrbitHub = class {
         const approvalId = asString(recordOf(data, "id"));
         const outcome = asString(recordOf(data, "outcome"));
         this.settleRow(record, approvalId ?? "", this.approvalStatus(outcome), epoch);
-        applyEvent(record.machine, { kind: "approval-decided", at });
+        applyEvent(record.machine, { kind: "approval-decided", ...approvalId === void 0 ? {} : { id: approvalId }, at });
         this.touch(record, at);
         return;
       }
@@ -1426,15 +1446,20 @@ var OrbitHub = class {
     applyEvent(record.machine, { kind: "question-asked", id, at });
     this.touch(record, at);
   }
-  /** The question was answered, declined or cancelled: stop reporting a block. */
-  handleQuestionSettled(sessionId) {
+  /**
+   * The question was answered, declined or cancelled: drop that one block.
+   *
+   * `callId` names which ask settled. Without it the newest open ask is settled,
+   * which is the best a caller that only saw "something finished" can do.
+   */
+  handleQuestionSettled(sessionId, callId) {
     if (typeof sessionId !== "string" || sessionId === "") return;
     const record = this.records.get(sessionId);
     if (record === void 0) return;
     const at = this.mono();
-    const id = record.machine.questionId;
-    if (id !== null) this.settleRow(record, id, "success", this.clock());
-    applyEvent(record.machine, { kind: "question-settled", at });
+    const id = callId === void 0 ? record.machine.questionIds[record.machine.questionIds.length - 1] : `question:${callId}`;
+    if (id !== void 0) this.settleRow(record, id, "success", this.clock());
+    applyEvent(record.machine, { kind: "question-settled", ...id === void 0 ? {} : { id }, at });
     this.touch(record, at);
   }
   handleError(sessionId, code) {
@@ -1509,7 +1534,7 @@ var OrbitHub = class {
     const record = resolved === void 0 ? void 0 : this.records.get(resolved);
     if (record === void 0) return emptyTaskContext(this.clock());
     const at = this.mono();
-    const waiting = record.machine.approvalId !== null ? "approval" : record.machine.questionId !== null ? "question" : void 0;
+    const waiting = record.machine.approvalIds.length > 0 ? "approval" : record.machine.questionIds.length > 0 ? "question" : void 0;
     const silenceInput = {
       ms: silenceOf(record.machine, at),
       activeTools: record.machine.openTools.length,

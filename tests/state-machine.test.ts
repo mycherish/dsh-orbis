@@ -264,13 +264,44 @@ describe('questions and closed turns', () => {
     expect(state.agentState).toBe('waiting');
 
     // Deciding the approval must not claim the question was answered.
-    applyEvent(state, { kind: 'approval-decided', at: 4 });
+    applyEvent(state, { kind: 'approval-decided', id: 'ap', at: 4 });
     expect(state.agentState).toBe('waiting');
-    expect(state.questionId).toBe('q');
+    expect(state.questionIds).toEqual(['q']);
 
-    applyEvent(state, { kind: 'question-settled', at: 5 });
+    applyEvent(state, { kind: 'question-settled', id: 'q', at: 5 });
     expect(state.agentState).not.toBe('waiting');
-    expect(state.questionId).toBeNull();
+    expect(state.questionIds).toEqual([]);
+  });
+
+  /*
+   * Two asks can be outstanding at once — parallel tools, or a subagent asking for
+   * its own permission. A single slot let the second overwrite the first, so
+   * deciding the first cleared a block that was still there.
+   */
+  it('holds every outstanding approval, not just the newest one', () => {
+    const state = createMachine(0);
+    applyEvent(state, { kind: 'status', status: 'running', at: 1 });
+    applyEvent(state, { kind: 'approval-asked', id: 'ap-1', at: 2 });
+    applyEvent(state, { kind: 'approval-asked', id: 'ap-2', at: 3 });
+    expect(state.approvalIds).toEqual(['ap-1', 'ap-2']);
+
+    // Deciding the NEWEST one must leave the older one blocking.
+    applyEvent(state, { kind: 'approval-decided', id: 'ap-2', at: 4 });
+    expect(state.agentState).toBe('waiting');
+    expect(state.approvalIds).toEqual(['ap-1']);
+
+    applyEvent(state, { kind: 'approval-decided', id: 'ap-1', at: 5 });
+    expect(state.agentState).not.toBe('waiting');
+  });
+
+  it('does not double-count the same ask arriving twice', () => {
+    const state = createMachine(0);
+    applyEvent(state, { kind: 'status', status: 'running', at: 1 });
+    applyEvent(state, { kind: 'approval-asked', id: 'ap-1', at: 2 });
+    applyEvent(state, { kind: 'approval-asked', id: 'ap-1', at: 3 });
+    expect(state.approvalIds).toEqual(['ap-1']);
+    applyEvent(state, { kind: 'approval-decided', id: 'ap-1', at: 4 });
+    expect(state.agentState).not.toBe('waiting');
   });
 
   it('remembers the last closed Turn so stale frames can be dropped', () => {

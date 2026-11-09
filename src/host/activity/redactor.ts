@@ -168,6 +168,27 @@ export function redactInlinePaths(value: string): string {
   });
 }
 
+/**
+ * How a tool name should be displayed.
+ *
+ * A tool name is a *name*, not a location — the allow-list already permits it.
+ * Running it through `redactPath` turned `mcp__vault__read_credential` into
+ * 「读取敏感配置文件」 and threw away the one detail an approval is actually about.
+ * Names that really are paths (an absolute executable) are still reduced to a
+ * basename, which is the case `redactPath` was written for.
+ */
+export function displayNameForTool(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const name = value.trim();
+  if (name === '') return undefined;
+  if (!/[\\/]/.test(name)) {
+    const clipped = clipLabel(name, 32);
+    return clipped === '' ? undefined : clipped;
+  }
+  const target = redactPath(name);
+  return target === undefined ? undefined : target.value;
+}
+
 /** Shorten a plain label (a tool name, a phase word) for display. */
 export function clipLabel(value: string, max = 32): string {
   const text = typeof value === 'string' ? value.trim() : '';

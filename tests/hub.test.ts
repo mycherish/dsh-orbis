@@ -137,6 +137,39 @@ describe('hub fold', () => {
   });
 
   /*
+   * Two asks in flight: the durable `approval/asked` used to adopt "the first
+   * running bridge row", which is the newest one — so the row for ask A got ask
+   * B's tool name and the placeholder for A stayed `running` for ten minutes.
+   */
+  it('adopts the bridge row that belongs to the ask, not the newest one', () => {
+    const hub = new OrbitHub({ now: () => T0 });
+    hub.handleStatus('s1', 'running');
+    // The waterfall sees both asks first and leaves a callId-keyed placeholder.
+    hub.handleApproval('s1', 'bash', 'call-A');
+    hub.handleApproval('s1', 'write', 'call-B');
+
+    hub.handleSessionEvent('s1', {
+      type: 'approval/asked',
+      time: T0 + 2,
+      data: { id: 'ap-A', callId: 'call-A', toolName: 'bash' },
+    });
+    hub.handleSessionEvent('s1', {
+      type: 'approval/asked',
+      time: T0 + 3,
+      data: { id: 'ap-B', callId: 'call-B', toolName: 'write' },
+    });
+
+    const rows = hub.snapshot('s1').events;
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    expect(byId.get('ap-A')?.safeTarget).toBe('bash');
+    expect(byId.get('ap-B')?.safeTarget).toBe('write');
+    // No placeholder may survive, and both asks are still outstanding.
+    expect(rows.some((row) => row.id.startsWith('bridge:'))).toBe(false);
+    expect(hub.snapshot('s1').agentState).toBe('waiting');
+    expect(hub.snapshot('s1').task.waitingReason).toBe('approval');
+  });
+
+  /*
    * DSH's delta frames carry no Turn, so "is this frame current?" can only be
    * answered by the machine. Without this guard a frame still in flight when the
    * Turn ended pushed `completed` back to `responding` one frame later.

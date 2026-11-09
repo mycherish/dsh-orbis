@@ -19,6 +19,7 @@ import {
   type OrbitTaskContext,
 } from '../../shared/task-context-types';
 import { HUD_RECENT_ROWS } from '../../shared/protocol';
+import { MAX_TITLE, redactInlinePaths } from '../activity/redactor';
 import { aggregateActivities, currentActionOf } from './activity-aggregator';
 import { inferPhase } from './phase-inference';
 
@@ -44,11 +45,25 @@ export interface TaskContextInput {
   silence: OrbitSilence;
 }
 
+/**
+ * Normalize one line of free Agent- or user-authored text for the browser.
+ *
+ * Both `nextStep` (a `todo/write` line) and `taskTitle` (a Session title, which
+ * a `first-prompt` provider derives from the human's own words) are prose, not
+ * structured targets, so they used to reach the Client untouched. They now take
+ * the same route every other field takes: absolute paths collapse to their
+ * basename, control characters are dropped, and the result is bounded.
+ */
+function safeLine(text: unknown, max: number): string | undefined {
+  if (typeof text !== 'string') return undefined;
+  const cleaned = redactInlinePaths(text.replace(/[\u0000-\u001f\u007f]/g, ' ')).trim();
+  if (cleaned === '') return undefined;
+  return cleaned.length > max ? `${cleaned.slice(0, max - 1)}…` : cleaned;
+}
+
 /** Clip a plan line to something a 470px card can show without wrapping. */
 function clipPlan(text: string): string | undefined {
-  const value = typeof text === 'string' ? text.replace(/[\u0000-\u001f\u007f]/g, ' ').trim() : '';
-  if (value === '') return undefined;
-  return value.length > MAX_NEXT_STEP ? `${value.slice(0, MAX_NEXT_STEP - 1)}…` : value;
+  return safeLine(text, MAX_NEXT_STEP);
 }
 
 /**
@@ -66,7 +81,9 @@ export function buildTaskContext(input: TaskContextInput): OrbitTaskContext {
     waitingApproval: input.waitingApproval,
   });
 
-  const title = typeof input.sessionTitle === 'string' ? input.sessionTitle.trim() : '';
+  // A title is prose the human may have written; it is bounded and path-redacted
+  // like any other forwarded string, and an empty remainder falls back honestly.
+  const title = safeLine(input.sessionTitle, MAX_TITLE) ?? '';
   const planItem = (input.plan ?? []).map(clipPlan).find((item) => item !== undefined);
 
   const context: OrbitTaskContext = {

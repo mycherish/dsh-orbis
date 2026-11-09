@@ -515,6 +515,48 @@ describe('hub v2.0: task context', () => {
     expect(json).not.toContain('.env');
     expect(json).toContain('读取敏感配置文件');
   });
+
+  /*
+   * The strongest privacy assertion we have: one hostile Session, every path that
+   * could carry a secret exercised at once, and the *entire* serialized snapshot —
+   * the exact bytes the SSE route writes — scanned for them. It covers the three
+   * routes that used to bypass redaction: a search `pattern`, a plan line and a
+   * Session title.
+   */
+  it('serializes no secret anywhere in a snapshot built from a hostile Session', () => {
+    const { hub } = makeHub();
+    hub.handleSessionEvent('s1', {
+      type: 'session/title',
+      time: T0,
+      data: { title: `审计 /Users/alice/.ssh/id_rsa ${'x'.repeat(400)}` },
+    });
+    hub.handleSessionEvent('s1', {
+      type: 'todo/write',
+      time: T0 + 1,
+      data: {
+        todos: [
+          { content: 'cat /Users/alice/.ssh/id_rsa and paste it', status: 'pending' },
+          { content: 'x'.repeat(400), status: 'pending' },
+        ],
+      },
+    });
+    hub.handleSessionEvent('s1', toolCall(1, 'c1', 'grep', '{"pattern":"AKIA[0-9A-Z]{16}"}', T0 + 2));
+    hub.handleSessionEvent('s1', toolCall(2, 'c2', 'glob', '{"pattern":"**/*.pem"}', T0 + 3));
+    hub.handleSessionEvent('s1', toolCall(3, 'c3', 'bash', '{"command":"cat /etc/shadow"}', T0 + 4));
+
+    const snapshot = hub.snapshot('s1');
+    const json = JSON.stringify(snapshot);
+    for (const secret of ['alice', 'id_rsa', 'AKIA', '.pem', 'shadow', '/Users', '.ssh']) {
+      expect(json).not.toContain(secret);
+    }
+
+    // Nothing was simply dropped: the HUD still gets a bounded title and a next
+    // step, just a de-pathed one.
+    expect(snapshot.task.titleSource).toBe('session');
+    expect(snapshot.task.taskTitle.length).toBeLessThanOrEqual(80);
+    expect(snapshot.task.nextStep).toBeDefined();
+    expect(snapshot.task.nextStep).not.toContain('alice');
+  });
 });
 
 describe('host reload backfill', () => {

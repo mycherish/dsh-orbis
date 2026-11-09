@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { aggregateActivities, currentActionOf } from '../src/host/context/activity-aggregator';
 import { inferPhase } from '../src/host/context/phase-inference';
 import { buildTaskContext, emptyTaskContext } from '../src/host/context/task-context-engine';
+import { MAX_TITLE } from '../src/host/activity/redactor';
 import type { OrbitActivity, OrbitToolCategory } from '../src/shared/task-context-types';
 import { TASK_TITLE_FALLBACK } from '../src/shared/task-context-types';
 
@@ -133,6 +134,38 @@ describe('task context engine', () => {
   it('clips an absurd plan line', () => {
     const context = buildTaskContext({ ...base, plan: ['x'.repeat(200)] });
     expect(context.nextStep?.length).toBe(80);
+  });
+
+  /*
+   * The plan and the title are prose, so they used to bypass every structured
+   * redaction and carry absolute paths straight to the browser.
+   */
+  it('de-paths the next step the Agent published', () => {
+    const context = buildTaskContext({ ...base, plan: ['cat /Users/alice/.ssh/id_rsa and paste it'] });
+    expect(context.nextStep).toBeDefined();
+    expect(context.nextStep).not.toContain('alice');
+    expect(context.nextStep).not.toContain('id_rsa');
+    expect(JSON.stringify(context)).not.toContain('alice');
+  });
+
+  it('bounds and de-paths a session title instead of forwarding it verbatim', () => {
+    const long = buildTaskContext({ ...base, sessionTitle: 'x'.repeat(5000) });
+    expect(long.taskTitle.length).toBe(MAX_TITLE);
+    expect(long.taskTitle.endsWith('…')).toBe(true);
+
+    const pathed = buildTaskContext({ ...base, sessionTitle: '修复 /Users/alice/secret/plan.md 的解析' });
+    expect(pathed.taskTitle).toBe('修复 plan.md 的解析');
+    expect(JSON.stringify(pathed)).not.toContain('alice');
+
+    const sensitive = buildTaskContext({ ...base, sessionTitle: '检查 /Users/alice/.ssh/id_rsa' });
+    expect(sensitive.taskTitle).not.toContain('id_rsa');
+    expect(sensitive.titleSource).toBe('session');
+  });
+
+  it('falls back honestly when a title is nothing but characters we strip', () => {
+    const context = buildTaskContext({ ...base, sessionTitle: '\u0000\u0001  \u007f' });
+    expect(context.taskTitle).toBe(TASK_TITLE_FALLBACK);
+    expect(context.titleSource).toBe('fallback');
   });
 
   it('carries the honest counters and the pure-event mode', () => {

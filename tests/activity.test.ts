@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { classify, fileKindOfName, ALL_CATEGORIES } from '../src/host/activity/classifier';
 import {
   isSensitiveName,
+  redactInlinePaths,
   redactPath,
   safeErrorLabel,
   sanitizeBasename,
@@ -118,16 +119,58 @@ describe('redaction', () => {
 
   it('reads a target out of JSON arguments, and never throws on junk', () => {
     expect(targetFromArguments('{"file_path":"/Users/x/report.md"}')?.value).toBe('report.md');
-    expect(targetFromArguments('{"pattern":"**/*.ts"}')?.value).toBe('*.ts');
+    expect(targetFromArguments('{"path":"src/host/hub.ts"}')?.value).toBe('hub.ts');
     expect(targetFromArguments('{"other":1}')).toBeUndefined();
     expect(targetFromArguments('not json at all')).toBeUndefined();
     expect(targetFromArguments('[]')).toBeUndefined();
+  });
+
+  /*
+   * A search pattern is what the user is *looking for*, not where it lives.
+   * `grep`/`glob` make `path` optional, so the ordinary call carries the pattern
+   * alone — forwarding it published secrets, tokens and internal hostnames to the
+   * browser. This used to be asserted as expected behaviour (`'*.ts'`); the
+   * assertion is now inverted on purpose.
+   */
+  it('never turns a search pattern into a display target', () => {
+    expect(targetFromArguments('{"pattern":"**/*.ts"}')).toBeUndefined();
+    expect(targetFromArguments('{"glob":"*.key"}')).toBeUndefined();
+    expect(targetFromArguments('{"name":"id_rsa"}')).toBeUndefined();
+  });
+
+  it('keeps the real path when a search also names one', () => {
+    expect(targetFromArguments('{"pattern":"AKIA[0-9A-Z]{16}","path":"src"}')?.value).toBe('src');
   });
 
   it('whitelists error codes only', () => {
     expect(safeErrorLabel('QUOTA')).toBe('QUOTA');
     expect(safeErrorLabel('upstream said: boom')).toBe('agent-error');
     expect(safeErrorLabel(undefined)).toBe('agent-error');
+  });
+
+  /*
+   * Plan lines and Session titles are free prose, so they never passed through the
+   * structured path above — the same guarantee has to be enforced on the text.
+   */
+  it('collapses absolute paths inside prose to a bare name', () => {
+    expect(redactInlinePaths('cat /Users/alice/secret/plan.md then stop')).toBe('cat plan.md then stop');
+    expect(redactInlinePaths('编辑 ~/www/app/src/hub.ts 即可')).toBe('编辑 hub.ts 即可');
+    expect(redactInlinePaths('open C:\\Users\\bob\\notes.txt')).toBe('open notes.txt');
+  });
+
+  it('replaces a secret-bearing path inside prose with the placeholder', () => {
+    const text = redactInlinePaths('cat /Users/alice/.ssh/id_rsa and paste it');
+    expect(text).not.toContain('alice');
+    expect(text).not.toContain('id_rsa');
+    expect(text).toContain(SENSITIVE_TARGET_LABEL);
+  });
+
+  it('leaves prose alone when there is no absolute path in it', () => {
+    expect(redactInlinePaths('修复重复悬浮球')).toBe('修复重复悬浮球');
+    expect(redactInlinePaths('支持读/写两种模式')).toBe('支持读/写两种模式');
+    expect(redactInlinePaths('and/or')).toBe('and/or');
+    expect(redactInlinePaths('run pnpm test')).toBe('run pnpm test');
+    expect(redactInlinePaths('')).toBe('');
   });
 });
 
@@ -251,5 +294,35 @@ describe('activity rows', () => {
       expect(keys).not.toContain(forbidden);
     }
     expect(JSON.stringify(row)).not.toContain('rm -rf');
+  });
+
+  /*
+   * The key-name sweep above cannot catch a leak that rides inside a *value*, so
+   * the row's whole serialized form is scanned for the actual secrets. This is the
+   * check that would have failed before the `pattern` key was removed.
+   */
+  it('the serialized DTO carries no search term, command or path fragment', () => {
+    const cases = [
+      { rawName: 'grep', argumentsJson: '{"pattern":"AKIA[0-9A-Z]{16}"}', secret: 'AKIA' },
+      { rawName: 'grep', argumentsJson: '{"pattern":"password = \\"hunter2\\""}', secret: 'hunter2' },
+      { rawName: 'glob', argumentsJson: '{"pattern":"**/*.pem"}', secret: 'pem' },
+      { rawName: 'bash', argumentsJson: '{"command":"curl -H \\"X-Token: abc123\\" x"}', secret: 'abc123' },
+      { rawName: 'read', argumentsJson: '{"file_path":"/Users/alice/.ssh/id_rsa"}', secret: 'alice' },
+    ];
+    for (const { rawName, argumentsJson, secret } of cases) {
+      const json = JSON.stringify(toolActivity({ id: 'c', sessionId, rawName, argumentsJson, at }));
+      expect(json).not.toContain(secret);
+    }
+    // The read row still says *something* useful: the family and the fact that the
+    // name was withheld — never the name itself.
+    const sensitive = toolActivity({
+      id: 'c',
+      sessionId,
+      rawName: 'read',
+      argumentsJson: '{"file_path":"/Users/alice/.ssh/id_rsa"}',
+      at,
+    });
+    expect(sensitive.category).toBe('file_read');
+    expect(sensitive.safeTarget).toBe(SENSITIVE_TARGET_LABEL);
   });
 });

@@ -96,8 +96,17 @@ export function sanitizeBasename(value: string): string | undefined {
   return redacted === undefined ? undefined : redacted.value;
 }
 
-/** Keys whose value may name a path or pattern, in priority order. */
-const TARGET_KEYS = ['file_path', 'filePath', 'path', 'target', 'pattern', 'name'];
+/**
+ * Keys whose value may name a location, in priority order.
+ *
+ * Search patterns are deliberately absent. `grep` and `glob` take a required
+ * `pattern` and an *optional* `path`, so the ordinary call carries the pattern
+ * only — and a pattern is what the user is searching *for*, which is exactly
+ * what an observer must never see (`AKIA…`, `password = "…"`, an internal
+ * hostname). `name` is absent for the same reason: it names a thing, not a
+ * place. A row that ends up with no target simply shows no target.
+ */
+const TARGET_KEYS = ['file_path', 'filePath', 'path', 'target'];
 
 /**
  * Extract a redacted target out of a JSON argument string, tolerating junk.
@@ -122,6 +131,41 @@ export function targetFromArguments(rawArguments: string): RedactedTarget | unde
     if (target !== undefined) return target;
   }
   return undefined;
+}
+
+/** Longest Session title we forward. */
+export const MAX_TITLE = 80;
+
+/**
+ * Absolute, home-relative and drive-rooted path tokens inside free text.
+ *
+ * A leading `/` only starts a match when an ASCII path character follows it, so
+ * prose such as `读/写` or `and/or` is left alone; relative paths are not
+ * touched either, because they say nothing about where the user keeps files.
+ */
+const ABSOLUTE_PATH_TOKEN = /(?:[A-Za-z]:[\\/]|~[\\/]|\/)[A-Za-z0-9._@+-][^\s"'`<>|,;()[\]{}]*/g;
+
+/**
+ * Reduce every absolute-looking path inside Agent-authored prose to its safe
+ * basename.
+ *
+ * Plan lines and Session titles are free text the Agent (or the user's first
+ * prompt) wrote, so they need the same guarantee as a structured target: the
+ * browser may learn *which* file, never *where*. A secret-bearing name is
+ * replaced by the fixed placeholder instead of its basename.
+ *
+ * A token needs at least two segments to count as a path worth rewriting. That
+ * keeps ordinary prose intact — `and/or` contains a `/`, but `/or` reveals no
+ * directory at all, and rewriting it would silently eat the slash.
+ */
+export function redactInlinePaths(value: string): string {
+  if (typeof value !== 'string' || value === '') return '';
+  return value.replace(ABSOLUTE_PATH_TOKEN, (token) => {
+    const segments = token.split(/[\\/]+/).filter((segment) => segment !== '' && segment !== '.' && segment !== '..');
+    if (segments.length < 2) return token;
+    const target = redactPath(token);
+    return target === undefined ? token : target.value;
+  });
 }
 
 /** Shorten a plain label (a tool name, a phase word) for display. */

@@ -39,6 +39,47 @@ describe('orb owner: one renderer for the whole plugin', () => {
     expect(renderer.start).toHaveBeenCalledTimes(1);
   });
 
+  /*
+   * A renderer outliving its WebGL context used to be invisible: the frame loop
+   * kept its rAF, `failed` stayed false, and the surfaces kept drawing an empty
+   * box instead of their static fallback.
+   */
+  it('reports a lost context to its watchers and flips failed', () => {
+    let report: (() => void) | undefined;
+    const create: CreateOrbRenderer = (options) => {
+      report = options.onUnavailable;
+      return fakeRenderer();
+    };
+    const owner = createOrbOwner(create);
+    const watcher = vi.fn();
+    const unsubscribe = owner.watchUnavailable(watcher);
+
+    owner.attach(fakeCanvas('hud'), visual, quality);
+    expect(owner.failed).toBe(false);
+    expect(report).toBeDefined();
+
+    // The renderer reports the loss the way the real one does.
+    report?.();
+    expect(owner.failed).toBe(true);
+    expect(watcher).toHaveBeenCalledTimes(1);
+
+    // A watcher that threw must not stop the others.
+    const other = vi.fn();
+    owner.watchUnavailable(() => {
+      throw new Error('a bad listener');
+    });
+    owner.watchUnavailable(other);
+    report?.();
+    expect(other).toHaveBeenCalledTimes(1);
+    expect(watcher).toHaveBeenCalledTimes(2);
+
+    // Unsubscribing stops that listener only.
+    unsubscribe();
+    report?.();
+    expect(watcher).toHaveBeenCalledTimes(2);
+    expect(other).toHaveBeenCalledTimes(2);
+  });
+
   it('re-binding the same canvas never builds a second renderer', () => {
     const renderer = fakeRenderer();
     const create = vi.fn(() => renderer);

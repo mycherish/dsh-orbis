@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OrbitHub } from '../src/host/hub';
 import { registerOrbitRoutes, type WebServerLike } from '../src/host/routes';
-import { EVENTS_ROUTE, STATE_ROUTE, type OrbitFrame } from '../src/shared/protocol';
+import { EVENTS_ROUTE, HEARTBEAT_MS, STATE_ROUTE, type OrbitFrame } from '../src/shared/protocol';
 
 const T0 = 1_700_000_000_000;
 
@@ -128,6 +128,73 @@ describe('read-only routes', () => {
     }
 
     await reader.cancel();
+  });
+
+  /*
+   * A peer that holds the socket open but stops reading (a frozen background tab,
+   * a proxy that will not forward, a paused debugger) used to let every snapshot
+   * pile into an unbounded queue while the connection stayed in `clients`.
+   */
+  it('drops frames instead of buffering without bound when the peer stops reading', async () => {
+    const hub = new OrbitHub({ now: () => T0 });
+    const { routes, webServer } = fakeServer();
+    const local = registerOrbitRoutes(hub, webServer);
+    handle = local;
+
+    const events = routes.find((route) => route.path === EVENTS_ROUTE);
+    const response = await events?.resource(new Request(`http://local${EVENTS_ROUTE}?sessionId=s1`));
+    const reader = response?.body?.getReader();
+    expect(reader).toBeDefined();
+    if (reader === undefined) return;
+
+    // Twenty changes, nobody reading: the queue must stay bounded. Hub
+    // notifications are coalesced on a microtask, so without yielding between the
+    // changes they collapse into a single push and prove nothing.
+    for (let index = 0; index < 20; index += 1) {
+      hub.handleSessionEvent('s1', { type: 'turn/start', time: T0 + index, data: { turn: index + 1 } });
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+
+    let frames = 0;
+    for (let guard = 0; guard < 40; guard += 1) {
+      const next = await Promise.race([
+        reader.read(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 20)),
+      ]);
+      if (next === null || next.done === true) break;
+      frames += 1;
+    }
+    // One opening frame plus the bounded queue — not twenty-one.
+    expect(frames).toBeLessThanOrEqual(6);
+    await reader.cancel();
+  });
+
+  it('evicts a connection that stops accepting frames', async () => {
+    // Fake timers must be installed *before* the routes register their interval,
+    // or the heartbeat keeps running on the real clock and never advances.
+    vi.useFakeTimers();
+    const hub = new OrbitHub({ now: () => T0 });
+    const { routes, webServer } = fakeServer();
+    const local = registerOrbitRoutes(hub, webServer);
+    handle = local;
+
+    const events = routes.find((route) => route.path === EVENTS_ROUTE);
+    const response = await events?.resource(new Request(`http://local${EVENTS_ROUTE}?sessionId=s1`));
+    expect(local.clients()).toBe(1);
+    void response;
+
+    // Fill the queue, then let three heartbeats fail to land. Hub notifications
+    // are coalesced on a microtask, so each change needs one turn of the loop to
+    // actually reach the stream.
+    for (let index = 0; index < 10; index += 1) {
+      hub.handleSessionEvent('s1', { type: 'turn/start', time: T0 + index, data: { turn: index + 1 } });
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    expect(local.clients()).toBe(1);
+    vi.advanceTimersByTime(HEARTBEAT_MS * 3);
+    expect(local.clients()).toBe(0);
   });
 
   it('closes live streams and unregisters both routes on dispose', async () => {

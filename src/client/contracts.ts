@@ -37,6 +37,14 @@ export interface OrbRendererOptions {
   canvas: HTMLCanvasElement;
   state: OrbVisualState;
   quality: OrbQuality;
+  /**
+   * Called when the WebGL context is lost for good.
+   *
+   * A lost context is not recoverable in place: the renderer stops drawing and
+   * the UI has to show its static fallback instead of an empty box. Without this
+   * signal the plugin kept a blank canvas and no explanation.
+   */
+  onUnavailable?: () => void;
 }
 
 /**

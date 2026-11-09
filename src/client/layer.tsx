@@ -106,6 +106,10 @@ function useOrbOwner(
     };
   }, [canvas, owner, enabled]);
 
+  // A lost context has to reach React, not just the owner's own flag: the
+  // surfaces decide between a live canvas and their static fallback from this.
+  React.useEffect(() => owner.watchUnavailable(() => setFailed(true)), [owner]);
+
   React.useEffect(() => {
     owner.update(visual, quality);
   }, [owner, visual, quality]);

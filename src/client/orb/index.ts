@@ -369,6 +369,22 @@ export const createOrbRenderer: CreateOrbRenderer = (options: OrbRendererOptions
   applySize();
   applyQualitySettings();
 
+  /**
+   * 上下文丢失（GPU 进程崩溃、驱动重置、macOS 睡眠唤醒、显存压力）之后，
+   * 这个 renderer 再也画不出东西了。
+   *
+   * 必须 `preventDefault()`，否则浏览器不会再尝试恢复；同时停掉帧循环——
+   * 否则 rAF 会一直空转在一个已经死掉的上下文上，而界面只看到一块空白。
+   * 恢复（`webglcontextrestored`）不在这里处理：重建整个场景交给宿主重新
+   * attach 更可靠，这里只负责如实上报「画不了了」。
+   */
+  let detachContextGuard: (() => void) | null = null;
+  const onContextLost = (event: Event): void => {
+    event.preventDefault();
+    api.pause();
+    options.onUnavailable?.();
+  };
+
   const api: OrbRenderer = {
     setState(next: OrbVisualState): void {
       if (disposed) return;
@@ -425,6 +441,8 @@ export const createOrbRenderer: CreateOrbRenderer = (options: OrbRendererOptions
       if (disposed) return;
       disposed = true;
       running = false;
+      detachContextGuard?.();
+      detachContextGuard = null;
       if (rafId !== null) {
         cancelAnimationFrame(rafId);
         rafId = null;
@@ -453,6 +471,9 @@ export const createOrbRenderer: CreateOrbRenderer = (options: OrbRendererOptions
       return clock.fps;
     },
   };
+
+  canvas.addEventListener('webglcontextlost', onContextLost);
+  detachContextGuard = () => canvas.removeEventListener('webglcontextlost', onContextLost);
 
   return api;
 };

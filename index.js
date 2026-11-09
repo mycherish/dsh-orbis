@@ -1622,6 +1622,8 @@ var JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
   "cache-control": "no-store"
 };
+var CLIENT_QUEUE_FRAMES = 4;
+var CLIENT_STALL_LIMIT = 3;
 var SSE_HEADERS = {
   "content-type": "text/event-stream; charset=utf-8",
   "cache-control": "no-store, no-transform",
@@ -1639,8 +1641,9 @@ function registerOrbitRoutes(hub, webServer) {
   const pushSnapshot = (client) => {
     const snapshot = hub.snapshot(client.sessionId);
     if (snapshot.version <= client.lastVersion) return;
+    if (!client.send(encodeFrame({ type: "snapshot", snapshot }))) return;
     client.lastVersion = snapshot.version;
-    client.send(encodeFrame({ type: "snapshot", snapshot }));
+    client.stalled = 0;
   };
   const unsubscribe = hub.subscribe(() => {
     if (disposed) return;
@@ -1649,7 +1652,16 @@ function registerOrbitRoutes(hub, webServer) {
   const heartbeat = setInterval(() => {
     if (disposed) return;
     const text = encodeFrame({ type: "heartbeat", at: Date.now() });
-    for (const client of clients) client.send(text);
+    for (const client of clients) {
+      if (client.send(text)) {
+        client.stalled = 0;
+        continue;
+      }
+      client.stalled += 1;
+      if (client.stalled < CLIENT_STALL_LIMIT) continue;
+      clients.delete(client);
+      client.end();
+    }
   }, HEARTBEAT_MS);
   heartbeat.unref?.();
   const disposeState = webServer.register({
@@ -1674,10 +1686,14 @@ function registerOrbitRoutes(hub, webServer) {
           client = {
             sessionId,
             lastVersion: opening.version,
+            stalled: 0,
             send(text) {
               try {
+                if (controller.desiredSize !== null && controller.desiredSize <= 0) return false;
                 controller.enqueue(encoder.encode(text));
+                return true;
               } catch {
+                return false;
               }
             },
             end() {
@@ -1695,7 +1711,7 @@ function registerOrbitRoutes(hub, webServer) {
         cancel() {
           if (client !== void 0) clients.delete(client);
         }
-      });
+      }, { highWaterMark: CLIENT_QUEUE_FRAMES });
       const detach = () => {
         if (client === void 0) return;
         clients.delete(client);

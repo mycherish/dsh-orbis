@@ -31,6 +31,14 @@ export interface OrbOwner {
   resize(): void;
   /** Measured FPS, or 0 when nothing is running. */
   fps(): number;
+  /**
+   * Called when the attached renderer loses its WebGL context.
+   *
+   * The owner cannot rebuild the UI by itself, so it reports the loss and flips
+   * `failed`, which is what makes the surfaces draw their static fallback.
+   * Returns an unsubscribe.
+   */
+  watchUnavailable(listener: () => void): () => void;
   /** Dispose the renderer and forget the canvas. Idempotent. */
   detach(): void;
 }
@@ -41,6 +49,22 @@ export function createOrbOwner(create: CreateOrbRenderer): OrbOwner {
   let created = 0;
   let failed = false;
   let disposed = false;
+  const unavailableListeners = new Set<() => void>();
+
+  /**
+   * A renderer that outlives its context is now a dead weight: remember the
+   * failure so a later `attach` reports it, and tell the mounted surfaces.
+   */
+  const markUnavailable = (): void => {
+    failed = true;
+    for (const listener of unavailableListeners) {
+      try {
+        listener();
+      } catch {
+        // One bad listener must not stop the rest from being told.
+      }
+    }
+  };
 
   return {
     get created() {
@@ -67,7 +91,7 @@ export function createOrbOwner(create: CreateOrbRenderer): OrbOwner {
       }
       canvas = nextCanvas;
       created += 1;
-      const created2 = create({ canvas: nextCanvas, state, quality });
+      const created2 = create({ canvas: nextCanvas, state, quality, onUnavailable: markUnavailable });
       renderer = created2;
       failed = created2 === null;
       if (created2 !== null) {
@@ -96,6 +120,13 @@ export function createOrbOwner(create: CreateOrbRenderer): OrbOwner {
 
     fps(): number {
       return renderer === null ? 0 : renderer.fps();
+    },
+
+    watchUnavailable(listener: () => void): () => void {
+      unavailableListeners.add(listener);
+      return () => {
+        unavailableListeners.delete(listener);
+      };
     },
 
     detach(): void {

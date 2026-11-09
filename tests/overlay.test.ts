@@ -10,7 +10,8 @@ import {
   surfacesOf,
   type OverlayInput,
 } from '../src/client/overlay';
-import type { OrbitDisplayMode } from '../src/client/contracts';
+import { LAUNCHER_SIZE, type OrbitDisplayMode } from '../src/client/contracts';
+import { clampLauncherPosition } from '../src/client/launcher';
 import type { OrbitAgentState } from '../src/shared/protocol';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -147,6 +148,55 @@ describe('overlay surfaces: never two orbs', () => {
     expect(isActiveState('quiet')).toBe(false);
     expect(isActiveState('completed')).toBe(true);
     expect(isActiveState('error')).toBe(true);
+  });
+});
+
+/*
+ * #5: the orb was a dead button in the default configuration. `auto` + `idle`
+ * already had `collapsed === false`, so a click that only un-collapsed changed
+ * nothing and React bailed out on the identical state.
+ */
+describe('a click on the orb always lands somewhere visible', () => {
+  const orbClick = (state: OrbitAgentState, collapsed: boolean, pinned: boolean) =>
+    input({ displayMode: 'auto', showHud: true, state, collapsed, pinned });
+
+  it('unfolds the panel from every resting state, even when it was already unfolded', () => {
+    for (const state of ['idle', 'quiet', 'thinking', 'executing', 'waiting'] as const) {
+      for (const collapsed of [true, false]) {
+        // What activateOrb applies on the panel path.
+        const after = { ...orbClick(state, collapsed, false), collapsed: false, pinned: true };
+        expect(overlayModeOf(after)).toBe('expanded');
+      }
+    }
+  });
+
+  it('keeps the panel reachable after the user once collapsed it', () => {
+    // The old behaviour: collapsed stays true, `wantsPanel` is false while idle,
+    // so the panel could never come back without the Agent waking up again.
+    const stale = orbClick('idle', true, false);
+    expect(overlayModeOf(stale)).toBe('compact');
+    const afterClick = { ...stale, collapsed: false, pinned: true };
+    expect(overlayModeOf(afterClick)).toBe('expanded');
+  });
+});
+
+describe('the saved orb position is rebuilt against the current viewport', () => {
+  const viewport = { width: 1280, height: 800 };
+  const maxRight = viewport.width - LAUNCHER_SIZE - 8;
+  const maxBottom = viewport.height - LAUNCHER_SIZE - 8;
+
+  it('pulls a position saved on a bigger screen back inside', () => {
+    expect(clampLauncherPosition({ right: 2400, bottom: 1400 }, viewport))
+      .toEqual({ right: maxRight, bottom: maxBottom });
+  });
+
+  it('leaves a position that already fits untouched', () => {
+    expect(clampLauncherPosition({ right: 24, bottom: 24 }, viewport)).toEqual({ right: 24, bottom: 24 });
+  });
+
+  it('never pushes the orb past the top-left edge', () => {
+    expect(clampLauncherPosition({ right: -400, bottom: -400 }, viewport))
+      .toEqual({ right: 8, bottom: 8 });
   });
 });
 

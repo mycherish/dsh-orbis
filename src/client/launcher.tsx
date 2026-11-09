@@ -67,6 +67,27 @@ interface DragState {
   moved: boolean;
 }
 
+/**
+ * Keep the orb inside the viewport.
+ *
+ * Pure and viewport-injectable so the overlay root can apply it even when the
+ * launcher is not the mounted surface, and so it is testable without a DOM.
+ */
+export function clampLauncherPosition(
+  next: LauncherPosition,
+  viewport?: { width: number; height: number },
+): LauncherPosition {
+  const width = viewport?.width ?? (typeof window === 'undefined' ? 0 : window.innerWidth);
+  const height = viewport?.height ?? (typeof window === 'undefined' ? 0 : window.innerHeight);
+  if (width <= 0 || height <= 0) return { ...next };
+  const maxRight = Math.max(EDGE_MARGIN_PX, width - LAUNCHER_SIZE - EDGE_MARGIN_PX);
+  const maxBottom = Math.max(EDGE_MARGIN_PX, height - LAUNCHER_SIZE - EDGE_MARGIN_PX);
+  return {
+    right: Math.min(maxRight, Math.max(EDGE_MARGIN_PX, next.right)),
+    bottom: Math.min(maxBottom, Math.max(EDGE_MARGIN_PX, next.bottom)),
+  };
+}
+
 export function Launcher(props: LauncherProps): React.ReactElement {
   const { position, agentState, activeTools, open, translate } = props;
   const [dragging, setDragging] = React.useState(false);
@@ -80,14 +101,10 @@ export function Launcher(props: LauncherProps): React.ReactElement {
     [props.bindOrbSlot],
   );
 
-  const clampPosition = React.useCallback((next: LauncherPosition): LauncherPosition => {
-    const maxRight = Math.max(EDGE_MARGIN_PX, window.innerWidth - LAUNCHER_SIZE - EDGE_MARGIN_PX);
-    const maxBottom = Math.max(EDGE_MARGIN_PX, window.innerHeight - LAUNCHER_SIZE - EDGE_MARGIN_PX);
-    return {
-      right: Math.min(maxRight, Math.max(EDGE_MARGIN_PX, next.right)),
-      bottom: Math.min(maxBottom, Math.max(EDGE_MARGIN_PX, next.bottom)),
-    };
-  }, []);
+  const clampPosition = React.useCallback(
+    (next: LauncherPosition): LauncherPosition => clampLauncherPosition(next),
+    [],
+  );
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
     if (event.button !== 0) return;

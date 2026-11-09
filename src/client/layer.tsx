@@ -16,7 +16,7 @@ import { LAUNCHER_SIZE, ORBIT_PALETTE, type OrbQuality, type OrbitSettings, type
 import { createOrbRenderer } from './orb';
 import { createOrbOwner } from './orb-owner';
 import { overlayModeOf, showsRestoreDot, surfacesOf } from './overlay';
-import { Launcher, LauncherRestore } from './launcher';
+import { clampLauncherPosition, Launcher, LauncherRestore } from './launcher';
 import { NeuralOrbitHUD } from './hud';
 import { WorkspaceView } from './workspace';
 import { useOrbitStore } from './store';
@@ -58,6 +58,8 @@ const ORB_CSS = `
 interface RendererHandle {
   fps: number;
   failed: boolean;
+  /** Re-measure the canvas box; a no-op while no renderer is attached. */
+  resize(): void;
 }
 
 /**
@@ -71,6 +73,7 @@ function useOrbOwner(
   visual: OrbVisualState,
   quality: OrbQuality,
   active: boolean,
+  enabled: boolean,
 ): RendererHandle {
   const ownerRef = React.useRef<ReturnType<typeof createOrbOwner> | null>(null);
   const visualRef = React.useRef(visual);
@@ -83,16 +86,25 @@ function useOrbOwner(
   if (ownerRef.current === null) ownerRef.current = createOrbOwner(createOrbRenderer);
   const owner = ownerRef.current;
 
-  // Create (once) and release on unmount: exactly one renderer per page.
+  /*
+   * Create (once) and release on unmount: exactly one renderer per page.
+   *
+   * `enabled` belongs in the dependencies. Turning the master switch off used to
+   * only `pause()` the loop, leaving the renderer — a real WebGL context, the
+   * compiled shaders and the whole scene — alive for the rest of the session. A
+   * user who never wants this plugin was paying for a context on every page load,
+   * which is the opposite of what the README promises.
+   */
   React.useEffect(() => {
-    if (canvas === null) return undefined;
+    if (canvas === null || !enabled) return undefined;
     owner.attach(canvas, visualRef.current, qualityRef.current);
     setFailed(owner.failed);
     return () => {
       owner.detach();
+      setFailed(false);
       setFps(0);
     };
-  }, [canvas, owner]);
+  }, [canvas, owner, enabled]);
 
   React.useEffect(() => {
     owner.update(visual, quality);
@@ -119,7 +131,9 @@ function useOrbOwner(
     ownerRef.current?.detach();
   }, []);
 
-  return { fps, failed };
+  const resize = React.useCallback(() => owner.resize(), [owner]);
+
+  return { fps, failed, resize };
 }
 
 export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
@@ -265,7 +279,24 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
   }, [orbCanvas, orbSlot]);
 
   const orbActive = surfaces.orb === 1 && !suspended && settings.animate;
-  const orb = useOrbOwner(orbCanvas, visual, quality, orbActive);
+  const orb = useOrbOwner(orbCanvas, visual, quality, orbActive, enabled);
+
+  /*
+   * Moving the one canvas between slots changes its box, and nothing else
+   * re-measures: `window resize` was the only other trigger, and `mode` changes
+   * do not fire it. Without this the Workspace stretched a 96px backbuffer over a
+   * ~330x450 stage — blurred, and oval because the camera aspect never changed.
+   * The observer also covers box changes that never touch the window (a sidebar
+   * collapsing, a host theme change).
+   */
+  React.useEffect(() => {
+    if (orbSlot === null || !enabled) return undefined;
+    orb.resize();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(() => orb.resize());
+    observer.observe(orbSlot);
+    return () => observer.disconnect();
+  }, [orbSlot, orb, enabled]);
 
   React.useEffect(() => {
     if (!enabled) {
@@ -292,6 +323,26 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [enabled, open, setOpen]);
 
+  /*
+   * The saved position is viewport-relative, so it goes stale the moment the
+   * window changes size — a monitor swap, or simply dragging the app to a smaller
+   * screen. Dragging clamped, but mounting never did, so both the orb and its
+   * restore dot could come back entirely off-screen with no way to reach them
+   * short of clearing localStorage. This runs in the overlay root because it is
+   * mounted in every mode, including the ball-only one.
+   */
+  React.useEffect(() => {
+    const sync = (): void => {
+      const clamped = clampLauncherPosition(position);
+      if (clamped.right !== position.right || clamped.bottom !== position.bottom) {
+        setPosition(clamped);
+      }
+    };
+    sync();
+    window.addEventListener('resize', sync);
+    return () => window.removeEventListener('resize', sync);
+  }, [position, setPosition]);
+
   // ---- always-on HUD wiring ----------------------------------------------
   const collapseHud = React.useCallback(() => setHudCollapsed(true), [setHudCollapsed]);
   const expandHud = React.useCallback(() => setHudCollapsed(false), [setHudCollapsed]);
@@ -307,8 +358,16 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
       setOpen(true);
       return;
     }
+    /*
+     * Un-collapsing alone is not enough: in the default configuration (auto, idle)
+     * `hudCollapsed` is already false, so the click changed nothing and React
+     * bailed out on an identical state — the orb was a dead button in the most
+     * common situation. Pinning guarantees the panel actually appears, and it is
+     * also what the click means: "show me this, keep showing me".
+     */
     setHudCollapsed(false);
-  }, [setHudCollapsed, setOpen, settings.displayMode, settings.showHud]);
+    setHudPinned(true);
+  }, [setHudCollapsed, setHudPinned, setOpen, settings.displayMode, settings.showHud]);
 
   // ---- master switch off: one affordance, and nothing else ---------------
   if (!enabled) {

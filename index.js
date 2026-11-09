@@ -1641,7 +1641,7 @@ function registerOrbitRoutes(hub, webServer) {
   const pushSnapshot = (client) => {
     const snapshot = hub.snapshot(client.sessionId);
     if (snapshot.version <= client.lastVersion) return;
-    if (!client.send(encodeFrame({ type: "snapshot", snapshot }))) return;
+    if (!client.send(encodeFrame({ type: "snapshot", snapshot }), snapshot.version)) return;
     client.lastVersion = snapshot.version;
     client.stalled = 0;
   };
@@ -1680,21 +1680,30 @@ function registerOrbitRoutes(hub, webServer) {
       const url = new URL(request.url);
       const sessionId = url.searchParams.get("sessionId") ?? void 0;
       let client;
+      let streamController = null;
+      let pendingFrame = null;
+      const write = (text) => {
+        if (streamController === null) return false;
+        try {
+          if (streamController.desiredSize !== null && streamController.desiredSize <= 0) return false;
+          streamController.enqueue(encoder.encode(text));
+          return true;
+        } catch {
+          return false;
+        }
+      };
       const stream = new ReadableStream({
         start(controller) {
+          streamController = controller;
           const opening = hub.snapshot(sessionId);
           client = {
             sessionId,
             lastVersion: opening.version,
             stalled: 0,
-            send(text) {
-              try {
-                if (controller.desiredSize !== null && controller.desiredSize <= 0) return false;
-                controller.enqueue(encoder.encode(text));
-                return true;
-              } catch {
-                return false;
-              }
+            send(text, version) {
+              if (write(text)) return true;
+              pendingFrame = { text, ...version === void 0 ? {} : { version } };
+              return false;
             },
             end() {
               try {
@@ -1707,6 +1716,19 @@ function registerOrbitRoutes(hub, webServer) {
           controller.enqueue(encoder.encode("retry: 3000\n\n".concat(
             encodeFrame({ type: "snapshot", snapshot: opening })
           )));
+        },
+        async pull() {
+          const next = pendingFrame;
+          if (next === null) return;
+          pendingFrame = null;
+          if (!write(next.text)) {
+            pendingFrame = next;
+            return;
+          }
+          if (client !== void 0) {
+            if (next.version !== void 0) client.lastVersion = next.version;
+            client.stalled = 0;
+          }
         },
         cancel() {
           if (client !== void 0) clients.delete(client);

@@ -157,6 +157,7 @@ describe('read-only routes', () => {
     }
 
     let frames = 0;
+    let newest = 0;
     for (let guard = 0; guard < 40; guard += 1) {
       const next = await Promise.race([
         reader.read(),
@@ -164,9 +165,21 @@ describe('read-only routes', () => {
       ]);
       if (next === null || next.done === true) break;
       frames += 1;
+      const text = new TextDecoder().decode(next.value);
+      const line = text.split('\n').find((candidate) => candidate.startsWith('data: '));
+      if (line === undefined) continue;
+      const frame = JSON.parse(line.slice('data: '.length)) as OrbitFrame;
+      if (frame.type === 'snapshot') newest = frame.snapshot.version;
     }
+
     // One opening frame plus the bounded queue — not twenty-one.
     expect(frames).toBeLessThanOrEqual(6);
+    /*
+     * And the frames it kept must be the *newest* ones. Dropping the freshest
+     * frame while the queue still held stale ones would leave a slow-but-alive
+     * peer rendering minutes-old state with nothing scheduled to fix it.
+     */
+    expect(newest).toBe(hub.snapshot('s1').version);
     await reader.cancel();
   });
 

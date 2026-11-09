@@ -38,8 +38,12 @@ interface Client {
   lastVersion: number;
   /** Consecutive dropped writes; reset by any successful one. */
   stalled: number;
-  /** @returns `true` when the frame was queued, `false` when it was dropped. */
-  send(text: string): boolean;
+  /**
+   * @param version the snapshot version this frame carries, when it carries one.
+   * @returns `true` when the frame was queued, `false` when it was dropped (it is
+   *          then held as the pending frame until the peer makes room).
+   */
+  send(text: string, version?: number): boolean;
   end(): void;
 }
 
@@ -97,7 +101,7 @@ export function registerOrbitRoutes(hub: OrbitHub, webServer: WebServerLike): Ro
      * frame would leave that client one version behind with nothing scheduled to
      * retry it; leaving it puts the next change back on the queue instead.
      */
-    if (!client.send(encodeFrame({ type: 'snapshot', snapshot }))) return;
+    if (!client.send(encodeFrame({ type: 'snapshot', snapshot }), snapshot.version)) return;
     client.lastVersion = snapshot.version;
     client.stalled = 0;
   };
@@ -144,25 +148,43 @@ export function registerOrbitRoutes(hub: OrbitHub, webServer: WebServerLike): Ro
       const url = new URL(request.url);
       const sessionId = url.searchParams.get('sessionId') ?? undefined;
       let client: Client | undefined;
+      let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+      /**
+       * The newest frame we could not queue, because the peer had stopped reading.
+       *
+       * Exactly one slot, and a newer frame overwrites it. Dropping the *newest*
+       * frame while keeping older ones in the queue would hand a slow-but-alive
+       * peer minutes-old state the moment it caught up — the queue has to lose
+       * frames, but it must lose the stale ones.
+       */
+      let pendingFrame: { text: string; version?: number } | null = null;
+
+      const write = (text: string): boolean => {
+        if (streamController === null) return false;
+        try {
+          // `desiredSize` is null only for a stream that cannot report it;
+          // otherwise <= 0 means the queue is full and the peer is behind.
+          if (streamController.desiredSize !== null && streamController.desiredSize <= 0) return false;
+          streamController.enqueue(encoder.encode(text));
+          return true;
+        } catch {
+          // The peer went away between the write and the flush.
+          return false;
+        }
+      };
 
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
+          streamController = controller;
           const opening = hub.snapshot(sessionId);
           client = {
             sessionId,
             lastVersion: opening.version,
             stalled: 0,
-            send(text: string): boolean {
-              try {
-                // `desiredSize` is null only for a stream that cannot report it;
-                // otherwise <= 0 means the queue is full and the peer is behind.
-                if (controller.desiredSize !== null && controller.desiredSize <= 0) return false;
-                controller.enqueue(encoder.encode(text));
-                return true;
-              } catch {
-                // The peer went away between the write and the flush.
-                return false;
-              }
+            send(text: string, version?: number): boolean {
+              if (write(text)) return true;
+              pendingFrame = { text, ...(version === undefined ? {} : { version }) };
+              return false;
             },
             end() {
               try {
@@ -178,6 +200,19 @@ export function registerOrbitRoutes(hub: OrbitHub, webServer: WebServerLike): Ro
           controller.enqueue(encoder.encode('retry: 3000\n\n'.concat(
             encodeFrame({ type: 'snapshot', snapshot: opening }),
           )));
+        },
+        async pull(): Promise<void> {
+          const next = pendingFrame;
+          if (next === null) return;
+          pendingFrame = null;
+          if (!write(next.text)) {
+            pendingFrame = next;
+            return;
+          }
+          if (client !== undefined) {
+            if (next.version !== undefined) client.lastVersion = next.version;
+            client.stalled = 0;
+          }
         },
         cancel() {
           if (client !== undefined) clients.delete(client);

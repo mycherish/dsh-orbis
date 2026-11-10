@@ -319,13 +319,21 @@ export function apply(ctx: HostContextLike): void {
         'user-questions/request',
         (request, next) => {
           let sessionId: string | undefined;
+          /*
+           * The call id names *which* ask settles. It used to be read only for
+           * `handleQuestion` and dropped on release, so the settle fell back to
+           * "the newest open ask": with two questions outstanding, answering the
+           * first one marked the second one answered, and a settled row is never
+           * re-settled, so the wrong verdict stuck.
+           */
+          const callId = idOf(request.callId);
           try {
             sessionId = sessionIdOf(request?.agent);
             if (sessionId !== undefined) {
               hub.handleQuestion(
                 sessionId,
                 typeof request.toolName === 'string' ? request.toolName : undefined,
-                idOf(request.callId),
+                callId,
               );
             }
           } catch (error) {
@@ -335,7 +343,7 @@ export function apply(ctx: HostContextLike): void {
           const released = (): void => {
             if (sessionId === undefined) return;
             try {
-              hub.handleQuestionSettled(sessionId);
+              hub.handleQuestionSettled(sessionId, callId);
             } catch (error) {
               report('question release', error);
             }

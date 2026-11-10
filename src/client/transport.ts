@@ -61,12 +61,28 @@ export function startTransport(options: TransportOptions): Transport {
     }
   };
 
+  /**
+   * Drop the fallback and everything it has on the wire.
+   *
+   * Clearing the interval alone was not enough: a poll that was already in flight
+   * kept its claim on the store, so a response that left the Host *before* this
+   * frame could land *after* it and win. Bumping the generation makes the poll's
+   * own post-await checks reject the answer, and aborting the request frees the
+   * socket instead of waiting for a reply nobody wants.
+   */
+  const stopPolling = (): void => {
+    clearPoll();
+    pollGeneration += 1;
+    inFlight?.abort();
+    inFlight = undefined;
+  };
+
   const deliver = (frame: OrbitFrame): void => {
     if (stopped) return;
     if (frame.type === 'snapshot') {
       sawFrame = true;
       clearFirstFrame();
-      if (polling) clearPoll();
+      if (polling || inFlight !== undefined) stopPolling();
       options.onSnapshot(frame.snapshot);
       options.onConnection('open');
       return;

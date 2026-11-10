@@ -12,13 +12,7 @@ import {
   type OrbitConfidence,
 } from '../../shared/task-context-types';
 import { classify, wantsTarget } from './classifier';
-import {
-  clipLabel,
-  displayNameForTool,
-  safeErrorLabel,
-  targetFromArguments,
-  type RedactedTarget,
-} from './redactor';
+import { displayNameForTool, safeErrorLabel, targetFromArguments, type RedactedTarget } from './redactor';
 
 export interface ToolCallInput {
   id: string;
@@ -42,7 +36,15 @@ export function toolActivity(input: ToolCallInput): OrbitActivity {
   const target = wantsTarget(classification.category, classification.fileKind)
     ? targetFromArguments(input.argumentsJson)
     : undefined;
-  const toolName = clipLabel(input.rawName, 32);
+  /*
+   * `displayNameForTool`, not `clipLabel`: a tool name is usually a name, but it can
+   * also *be* a path (`/Users/me/.ssh/id_rsa` reaches here verbatim from an MCP
+   * definition). Clipping kept 32 characters of it, so the unclassified fallback
+   * label printed an absolute path — username and all — while `safeTarget`
+   * correctly stayed empty. `approvalActivity` / `questionActivity` in this file
+   * already went through the same helper, so this also removes an inconsistency.
+   */
+  const toolName = displayNameForTool(input.rawName) ?? '';
   // The family word is the safe label; the raw name only survives when we could
   // not classify at all (it is the one thing that still tells the user something).
   const label =

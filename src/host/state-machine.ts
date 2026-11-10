@@ -185,12 +185,18 @@ export function applyEvent(input: MachineState, event: OrbitMachineEvent): Machi
     case 'status':
       state.running = event.status === 'running';
       if (state.running) {
-        // A running loop starts a fresh window; it is NOT a step by itself.
+        /*
+         * A running loop starts a fresh window; it is NOT a step by itself.
+         *
+         * It also says nothing about the human. This branch used to clear both ask
+         * sets, and DSH reports `running` on every wake-up — so an approval nobody
+         * had answered silently left the blocking set and the panel stopped saying
+         * `waiting` while it still was. Every ask leaves through its own
+         * `approval-decided` / `question-settled`, or through `turn-end` / `error`.
+         */
         state.lastActivityAt = event.at;
         state.phase = state.phase === 'none' ? 'none' : state.phase;
         clearHolds(state);
-        state.approvalIds = [];
-        state.questionIds = [];
       } else {
         state.phase = 'none';
       }

@@ -323,6 +323,25 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
       if (get().stale) set({ stale: false });
       return;
     }
+    /*
+     * A frame can be *older* than what is already on screen, and that is not as
+     * strange as it sounds: SSE and the polling fallback can both be alive for a
+     * moment, so a poll that started before a newer frame can answer after it. The
+     * check above only catches an *identical* frame, so without this the panel went
+     * backwards in time and stayed there until the next event.
+     *
+     * `updatedAt` is what keeps this from freezing on a Host restart: a new Host
+     * process starts `version` over at 1, but its `updatedAt` is later than anything
+     * the previous process wrote, so the restarted stream still takes over.
+     */
+    if (
+      current !== null &&
+      current.sessionId === snapshot.sessionId &&
+      snapshot.version < current.version &&
+      snapshot.updatedAt <= current.updatedAt
+    ) {
+      return;
+    }
     set(get().stale ? { snapshot, stale: false } : { snapshot });
   },
   setConnection: (connection) => set({ connection }),

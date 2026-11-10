@@ -377,3 +377,55 @@ describe('host plugin wiring', () => {
     expect(info.persistence).toBe('none');
   });
 });
+
+/*
+ * C2 (2.1.6): two questions in flight, and the release does not name which one.
+ *
+ * The waterfall listener knows the `callId` — it passes it to `handleQuestion` —
+ * but the release callback dropped it, so `handleQuestionSettled` fell back to
+ * "settle the newest open ask". With two questions outstanding, answering the
+ * first marked the second one answered, and `settleRow` refuses to settle a row
+ * twice, so the wrong row kept that verdict for good.
+ */
+describe('C2: concurrent questions settle by callId', () => {
+  const state = async (
+    host: ReturnType<typeof fakeHost>,
+  ): Promise<{ events: Array<{ id: string; status: string }> }> => {
+    const route = host.routes.find((entry) => entry.path === '/api/orbis/state');
+    if (route === undefined) throw new Error('state route missing');
+    const response = await route.resource(pageRequest('/api/orbis/state'));
+    return (await response.json()) as { events: Array<{ id: string; status: string }> };
+  };
+
+  it('leaves the second question running when the first one is answered', async () => {
+    const host = fakeHost();
+    try {
+      apply(host.ctx as never);
+      const ask = host.listeners.get('user-questions/request');
+      expect(typeof ask).toBe('function');
+      if (typeof ask !== 'function') return;
+
+      let answerFirst: () => void = () => {};
+      const first = new Promise<void>((resolve) => {
+        answerFirst = resolve;
+      });
+      ask({ agent: { session: 's1' }, toolName: 'ask_user', callId: 'call-1' }, () => first);
+      ask(
+        { agent: { session: 's1' }, toolName: 'ask_user', callId: 'call-2' },
+        () => new Promise<void>(() => {}),
+      );
+
+      answerFirst();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const events = (await state(host)).events;
+      const firstRow = events.find((row) => row.id === 'question:call-1');
+      const secondRow = events.find((row) => row.id === 'question:call-2');
+      expect(firstRow?.status, 'the answered question is the one that settles').toBe('success');
+      expect(secondRow?.status, 'the unanswered question must stay open').toBe('running');
+    } finally {
+      host.disposeAll();
+      host.restoreConsole();
+    }
+  });
+});

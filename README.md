@@ -300,9 +300,9 @@ dsh plugin --profile desktop remove dsh-orbis            # CLI
 | 类型检查（`strict` + `noUncheckedIndexedAccess`） | `tsc --noEmit -p tsconfig.json` | ✅ 0 错误 |
 | 格式 | `prettier --check` | ✅ 全部文件符合（CI 独立作业守着） |
 | 文字对比度 | `vitest run tests/contrast.test.ts` | ✅ 四份样式表全部文本 ≥ WCAG AA（4.5:1；图标 ≥3:1），由脚本按真实色值算 |
-| 单元 / 集成测试 | `vitest run` | ✅ **362 项 / 23 文件**全过（含发布契约：产物 banner 必须与 `package.json` 同版本） |
-| 构建 | `node scripts/build.mjs` | ✅ `index.js` 71.2 kB、`client.js` 682.3 kB（41 模块），两次构建 sha256 一致 |
-| 发布体积 | `npm pack` | ✅ 19 个文件、827.8 kB（截图已转 WebP，8.7 MB → 613 kB） |
+| 单元 / 集成测试 | `vitest run` | ✅ **380 项 / 25 文件**全过（含发布契约：产物 banner 必须与 `package.json` 同版本） |
+| 构建 | `node scripts/build.mjs` | ✅ `index.js` 71.4 kB、`client.js` 682.4 kB（41 模块），两次构建 sha256 一致 |
+| 发布体积 | `npm pack` | ✅ 19 个文件、827.9 kB（截图已转 WebP，8.7 MB → 613 kB） |
 | 运行时数据通路 | `curl /api/orbis/state` | ✅ 返回 v2 快照：`task.taskTitle` / `task.phase` / `task.silence.label` / 活动行 / 计数 全部在线生成 |
 | 静默与执行态共存 | 同上（工具执行中连续采样） | ✅ `silenceMs` 44→2112→4158 递增，状态保持 `executing` |
 | Host 行激活 | `plugin_manager list_plugins` / `set_plugin` | ✅ 重载 `applied`，无 warning |
@@ -324,7 +324,8 @@ dsh plugin --profile desktop remove dsh-orbis            # CLI
 4. **活动行一条对应一次工具调用**：文件类工具那一条同时是"工具节点"和"文件节点"（带 `fileKind` + 脱敏 `safeTarget`），不重复两行。
 5. **`quiet` 只覆盖"没有工具在跑"的静默**：跑长命令时的静默由 `quietLevel` 单独上报，状态保持 `executing`，避免把"在干活"说成"卡住"。
 6. **协议版本升到 3，并且写进了快照**：DTO 字段更名（`name→label`、`timestamp→startedAt`、`target→safeTarget`）。快照现在带 `protocol` 字段，客户端比对不上就丢掉整份数据、只显示一句「版本不匹配，请刷新页面」——不是抛异常，也不是拿旧字段硬渲染。真实会撞上的场景只有一个：页面代次活着、Host 进程换了新版本。
-7. **二级文字的透明度有下限**：`labelDim` 本身是 6.6:1，但样式里再叠一层 `color-mix(… 62%, transparent)` 就掉到 1.90:1。现在所有小字号文字走同一个 `quiet()` 下限（85%，约 5.2:1），只保留 85 / 92 / 96 三档层次。`tests/contrast.test.ts` 从样式表本身算，不靠人眼看。
+7. **快照有单调守卫**：同 Session 下，版本更旧且 `updatedAt` 不更新的快照会被丢弃。SSE 与轮询兜底可能短暂并存，一条早发出的轮询响应不应盖掉后到的新帧；而 Host 重启后 `version` 从 1 重来、`updatedAt` 更新，所以新进程仍能接管。
+8. **二级文字的透明度有下限**：`labelDim` 本身是 6.6:1，但样式里再叠一层 `color-mix(… 62%, transparent)` 就掉到 1.90:1。现在所有小字号文字走同一个 `quiet()` 下限（85%，约 5.2:1），只保留 85 / 92 / 96 三档层次。`tests/contrast.test.ts` 从样式表本身算，不靠人眼看。
 
 ### 上手
 

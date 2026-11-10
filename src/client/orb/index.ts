@@ -468,12 +468,21 @@ export const createOrbRenderer: CreateOrbRenderer = (options: OrbRendererOptions
 
       renderer.renderLists.dispose();
       renderer.dispose();
-      try {
-        // 尽量把 GPU 上下文也还回去（76px 图标会反复挂载/卸载）。
-        renderer.forceContextLoss();
-      } catch {
-        // 某些环境不允许主动丢上下文，忽略即可：dispose 已完成主要释放工作。
-      }
+      /*
+       * Deliberately NOT `renderer.forceContextLoss()`.
+       *
+       * The shell owns one `<canvas>` for the life of the page and moves it between
+       * surfaces; this renderer is re-created on it whenever the master switch is
+       * toggled. A forced loss is permanent for that canvas — the browser keeps
+       * handing back the *same dead context* from `getContext`, so `hasWebGL()`
+       * still answers yes and the next renderer is built over a lost context and
+       * draws nothing, forever, until the page reloads. Measured in real Chrome:
+       * after `loseContext()`, `getContext('webgl2')` returns a non-null, identical
+       * object and `isContextLost()` is true.
+       *
+       * `dispose()` has already released every geometry, material, geometry buffer
+       * and the render lists; the context itself is reclaimed with the canvas.
+       */
     },
 
     fps(): number {

@@ -181,6 +181,27 @@ describe('redaction', () => {
     expect(text).toContain(SENSITIVE_TARGET_LABEL);
   });
 
+  /*
+   * S1 (2.1.6): a path glued to the preceding character used to escape entirely.
+   *
+   * Chinese prose normally has no space before a path — `修复/Users/x/.ssh/id_rsa`
+   * is how a model writes it — and the token regex required a non-word character
+   * before the leading slash. The whole absolute path, username included, reached
+   * the browser. The root-word branch fixes the glued case without touching prose
+   * like `and/or`, which has no absolute root after the slash.
+   */
+  it('redacts an absolute path even when it is glued to the preceding word', () => {
+    expect(redactInlinePaths('修复/Users/x/.ssh/id_rsa 的权限')).toBe('修复读取敏感配置文件 的权限');
+    expect(redactInlinePaths('详见/Users/alice/secret/plan.md')).toBe('详见plan.md');
+    expect(redactInlinePaths('打开/home/bob/.env')).toBe('打开读取敏感配置文件');
+  });
+
+  it('still leaves slash-joined words alone when they are not paths', () => {
+    expect(redactInlinePaths('支持读/写两种模式')).toBe('支持读/写两种模式');
+    expect(redactInlinePaths('and/or')).toBe('and/or');
+    expect(redactInlinePaths('TCP/IP 与 UI/UX')).toBe('TCP/IP 与 UI/UX');
+  });
+
   it('leaves prose alone when there is no absolute path in it', () => {
     expect(redactInlinePaths('修复重复悬浮球')).toBe('修复重复悬浮球');
     expect(redactInlinePaths('支持读/写两种模式')).toBe('支持读/写两种模式');
@@ -381,5 +402,35 @@ describe('inline path redaction across path dialects', () => {
   it('masks a secret-bearing basename whatever the directory dialect', () => {
     expect(redactInlinePaths('/秘钥/server.key')).toBe(SENSITIVE_TARGET_LABEL);
     expect(redactInlinePaths('\\\\vault\\keys\\id_rsa')).toBe(SENSITIVE_TARGET_LABEL);
+  });
+});
+
+/*
+ * S1 (2.1.6), second hole: a tool name is a name, but it can also be a path.
+ *
+ * `approvalActivity` and `questionActivity` run the name through
+ * `displayNameForTool`, which reduces a path-shaped name to its basename and masks
+ * a secret-bearing one. The tool row used `clipLabel` instead, so a name that was
+ * literally `/Users/me/.ssh/id_rsa` became the row label verbatim — absolute path,
+ * username and all — while `safeTarget` correctly stayed empty.
+ */
+describe('S1: a path-shaped tool name never becomes a label', () => {
+  it('masks a secret-bearing name instead of printing the path', () => {
+    const row = toolActivity({
+      id: 'call-x',
+      sessionId,
+      rawName: '/Users/alice/.ssh/id_rsa',
+      argumentsJson: '{}',
+      at,
+    });
+    expect(row.label).not.toContain('/Users/');
+    expect(row.label).not.toContain('id_rsa');
+    expect(row.label).toBe(SENSITIVE_TARGET_LABEL);
+  });
+
+  it('keeps a normal tool name readable', () => {
+    const row = toolActivity({ id: 'call-y', sessionId, rawName: 'read_file', argumentsJson: '{}', at });
+    expect(row.label.length).toBeGreaterThan(0);
+    expect(row.label).not.toContain('读取敏感');
   });
 });

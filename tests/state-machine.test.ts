@@ -321,3 +321,48 @@ describe('questions and closed turns', () => {
     expect(state.lastClosedTurn).toBe(7);
   });
 });
+
+/*
+ * C3 (2.1.6): a wake-up status must not answer an approval for the user.
+ *
+ * `tool-start` was fixed for exactly this reason in 2.1.2 — the rule now written
+ * down in the source is that each ask leaves the blocking set only through its own
+ * `approval-decided` / `question-settled`. The `status` branch still wiped both
+ * sets, and DSH reports `running` on wake-ups, so a pending approval could vanish
+ * from the panel while nobody had answered it.
+ */
+describe('C3: a running status must not clear pending asks', () => {
+  it('keeps an unanswered approval while the loop reports running', () => {
+    const machine = createMachine(T0);
+    applyEvent(machine, { kind: 'turn-start', turn: 1, at: T0 });
+    applyEvent(machine, { kind: 'approval-asked', id: 'A', at: T0 + 10 });
+    expect(computeState(machine, T0 + 20)).toBe('waiting');
+
+    applyEvent(machine, { kind: 'status', status: 'running', at: T0 + 30 });
+
+    expect(machine.approvalIds).toEqual(['A']);
+    expect(computeState(machine, T0 + 40)).toBe('waiting');
+  });
+
+  it('keeps an unanswered question the same way', () => {
+    const machine = createMachine(T0);
+    applyEvent(machine, { kind: 'turn-start', turn: 1, at: T0 });
+    applyEvent(machine, { kind: 'question-asked', id: 'Q', at: T0 + 10 });
+
+    applyEvent(machine, { kind: 'status', status: 'running', at: T0 + 30 });
+
+    expect(machine.questionIds).toEqual(['Q']);
+    expect(computeState(machine, T0 + 40)).toBe('waiting');
+  });
+
+  it('still releases the ask when its own decided event arrives', () => {
+    // The guard above must not turn into "nothing can ever clear an ask".
+    const machine = createMachine(T0);
+    applyEvent(machine, { kind: 'turn-start', turn: 1, at: T0 });
+    applyEvent(machine, { kind: 'approval-asked', id: 'A', at: T0 + 10 });
+    applyEvent(machine, { kind: 'status', status: 'running', at: T0 + 20 });
+    applyEvent(machine, { kind: 'approval-decided', id: 'A', at: T0 + 30 });
+    expect(machine.approvalIds).toEqual([]);
+    expect(computeState(machine, T0 + 40)).not.toBe('waiting');
+  });
+});

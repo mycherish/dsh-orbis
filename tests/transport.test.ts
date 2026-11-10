@@ -25,6 +25,26 @@ interface Pending {
   resolve: (response: Response) => void;
 }
 
+/** A controllable `EventSource`: the test drives open/error/message by hand. */
+interface FakeEventSource {
+  onopen: ((event: Event) => void) | null;
+  onmessage: ((event: MessageEvent<string>) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  close(): void;
+}
+
+function fakeEventSourceClass(instances: FakeEventSource[]): new (url: string) => FakeEventSource {
+  return class {
+    onopen: ((event: Event) => void) | null = null;
+    onmessage: ((event: MessageEvent<string>) => void) | null = null;
+    onerror: ((event: Event) => void) | null = null;
+    constructor(public readonly url: string) {
+      instances.push(this as unknown as FakeEventSource);
+    }
+    close(): void {}
+  } as unknown as new (url: string) => FakeEventSource;
+}
+
 describe('polling fallback', () => {
   let transport: Transport | undefined;
 
@@ -80,6 +100,49 @@ describe('polling fallback', () => {
     await flush();
 
     expect(seen).toEqual(['b']);
+  });
+
+  /*
+   * T1 (2.1.6), the transport half: an SSE frame must invalidate a poll in flight.
+   *
+   * `deliver()` only cleared the poll *timer*, so a request that was already on the
+   * wire kept its claim on the store. The window is real: the stream stalls, the
+   * first-frame timeout starts polling, the stream then recovers and pushes a
+   * snapshot — and the older poll response lands afterwards and wins, because
+   * nothing stamped it as belonging to the connection the frame just superseded.
+   */
+  it('drops a poll response that was in flight when an SSE frame arrived', async () => {
+    const seen: number[] = [];
+    const pending = manualFetch();
+    const instances: FakeEventSource[] = [];
+    vi.stubGlobal('EventSource', fakeEventSourceClass(instances));
+
+    transport = startTransport({
+      sessionId: () => 'a',
+      onSnapshot: (snapshot) => {
+        seen.push(snapshot.version);
+      },
+      onConnection: () => {},
+    });
+
+    // The stream errors out, which starts the polling fallback.
+    const source = instances[0];
+    expect(source).toBeDefined();
+    source?.onerror?.(new Event('error'));
+    await flush();
+    expect(pending, 'a poll should be in flight').toHaveLength(1);
+
+    // Before it answers, the stream recovers and pushes a newer snapshot.
+    source?.onmessage?.({
+      data: JSON.stringify({ type: 'snapshot', snapshot: snap('a', 7) }),
+    } as MessageEvent<string>);
+    await flush();
+
+    // Now the older poll answers. It must be ignored.
+    pending[0]?.resolve(ok(snap('a', 5)));
+    await flush();
+
+    expect(seen, 'the late poll must not overwrite the newer frame').toEqual([7]);
   });
 
   it('applies nothing after stop, however late the response is', async () => {

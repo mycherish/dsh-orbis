@@ -174,8 +174,25 @@ export const MAX_TITLE = 80;
  * never covered: its first segment is a host name, so it cannot be expressed by
  * the `[A-Za-z]:` alternative.
  */
-const ABSOLUTE_PATH_TOKEN =
-  /(?:[A-Za-z]:[\\/]|\\\\[^\\/\s]+[\\/]|~[\\/]|(?<![\p{L}\p{N}._@+~-])\/)[\p{L}\p{N}._@+-][^\s"'`<>|,;()\[\]{}]*/gu;
+/**
+ * First segments that only ever introduce an absolute path.
+ *
+ * Needed because a bare `/` is ambiguous: `TCP/IP` and `支持读/写` must survive, so
+ * the plain slash branch requires a non-word character in front of it. Chinese prose
+ * has no space before a path, though — `修复/Users/x/.ssh/id_rsa` is how a model
+ * writes it — and that glued path escaped redaction entirely, username and all.
+ * A slash followed by one of these roots is a path whatever precedes it.
+ */
+const ABSOLUTE_ROOTS =
+  'Users|home|root|var|etc|tmp|opt|srv|usr|mnt|media|private|Volumes|Library|System|Applications|proc|dev';
+
+const ABSOLUTE_PATH_TOKEN = new RegExp(
+  '(?:[A-Za-z]:[\\\\/]|\\\\\\\\[^\\/\\s]+[\\\\/]|~[\\\\/]' +
+    '|(?<![\\p{L}\\p{N}._@+~-])/' +
+    `|/(?=(?:${ABSOLUTE_ROOTS})[\\\\/]))` +
+    '[\\p{L}\\p{N}._@+-][^\\s"\'`<>|,;()\\[\\]{}]*',
+  'gu',
+);
 
 /**
  * Reduce every absolute-looking path inside Agent-authored prose to its safe

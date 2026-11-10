@@ -114,9 +114,32 @@ export function isLoopbackAuthority(authority: string | null): boolean {
 export function foreignRequestRefusal(request: Request): Response | undefined {
   const headers = request.headers;
   const host = headers.get('host');
+  /*
+   * The authority is the only part of this request that describes *our* listener
+   * rather than the caller, so it is the trust root: loopback, or nothing.
+   *
+   * `Origin` / `Sec-Fetch-Site` cannot serve that role. They are written by the
+   * caller, and they say "this page is same-origin with itself" — which is just as
+   * true of a page DSH serves from a LAN address, or of a page on a foreign domain
+   * that resolves to 127.0.0.1 (DNS rebinding). Both used to be answered, and both
+   * could read the whole snapshot. Requiring a loopback authority refuses them,
+   * because that is the one claim a browser makes about the address you reached it
+   * at, and it stays truthful under rebinding.
+   *
+   * What this does NOT do: it cannot stop a program on the same machine (it does not
+   * need to — it can already read your files), nor a LAN peer that connects to an
+   * exposed listener and forges `Host: 127.0.0.1`. The carrier hands a resource no
+   * peer address (`serveResource` builds the Request from headers only), so a plugin
+   * physically cannot tell those apart. The honest answer for a deliberately
+   * exposed deployment is a capability token or an authenticating proxy in front —
+   * not a smarter header check. README says so out loud.
+   */
+  if (host === null || !isLoopbackAuthority(host)) return refusal();
   const origin = headers.get('origin');
-  if (host !== null && origin !== null && origin !== 'null') {
-    let originHost: string | undefined;
+  // `null` is the opaque origin of a sandboxed iframe or a `file://` page.
+  if (origin === 'null') return refusal();
+  if (origin !== null) {
+    let originHost: string;
     try {
       originHost = new URL(origin).host;
     } catch {
@@ -126,11 +149,8 @@ export function foreignRequestRefusal(request: Request): Response | undefined {
     if (originHost.toLowerCase() !== host.toLowerCase()) return refusal();
   }
   const site = headers.get('sec-fetch-site');
-  if (site !== null) {
-    if (site === 'same-origin' || site === 'none') return undefined;
-    return refusal();
-  }
-  return isLoopbackAuthority(host) ? undefined : refusal();
+  if (site !== null && site !== 'same-origin' && site !== 'none') return refusal();
+  return undefined;
 }
 
 function refusal(): Response {

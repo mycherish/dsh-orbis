@@ -410,11 +410,45 @@ describe('foreign request containment', () => {
     expect(matching?.status).toBe(200);
   });
 
-  it('still answers a GUI the operator chose to serve on a LAN address', async () => {
-    // Same-origin means the page itself got past the host's 401; refusing that
-    // would break every deliberately exposed deployment for no gain.
+  /*
+   * S2 / option A (2.1.7): the trust root is the authority, not the fetch metadata.
+   *
+   * This test used to assert the opposite. It read "same-origin means the page got
+   * past the host's 401", which is true of a same-machine page and false of a page
+   * served from a LAN address — that page is same-origin with itself too, and it
+   * could read the whole snapshot. A deployment that is deliberately exposed now
+   * loses the panel on other devices instead of silently serving them: fail closed,
+   * and the README says so.
+   */
+  it('refuses a GUI served from a LAN address, even though it is same-origin', async () => {
     const response = await answer({ host: '10.0.0.7:4123', 'sec-fetch-site': 'same-origin' });
+    expect(response?.status).toBe(403);
+  });
+
+  it('refuses the DNS-rebinding shape: a truthful browser on a foreign host', async () => {
+    // A page on `evil.test` whose name resolves to 127.0.0.1 sends its own origin and
+    // `same-origin` fetch metadata. The authority is the only part of this request
+    // that describes *our* listener rather than the caller, so it decides.
+    const rebound = await answer({
+      host: 'evil.test:4123',
+      origin: 'http://evil.test:4123',
+      'sec-fetch-site': 'same-origin',
+    });
+    expect(rebound?.status).toBe(403);
+  });
+
+  it('refuses an opaque origin, which is what a sandboxed or file:// page sends', async () => {
+    expect((await answer({ origin: 'null' }))?.status).toBe(403);
+  });
+
+  it('answers a loopback page that names its own origin', async () => {
+    const response = await answer({ origin: `http://${PAGE_AUTHORITY}`, 'sec-fetch-site': 'same-origin' });
     expect(response?.status).toBe(200);
+  });
+
+  it('answers a bare loopback client, which is what `dsh doctor` and curl are', async () => {
+    // No fetch metadata at all: the request never came from a browser. Still local.
+    expect((await answer({}))?.status).toBe(200);
   });
 });
 

@@ -222,7 +222,19 @@ pnpm verify         # build + typecheck + test + format:check
 |---|---|---|
 | DSH | **0.2.2-rc.1 及以上**（`<0.3.0`） | 插件的两条路由注册成 `{ resource }`，由 carrier 的 `WebServer.serveResource` 分发（它负责造 `Request`、取 `Response`、并在 socket 断开时 abort 请求信号）。这个分支 0.2.2-rc.1 才有；`0.2.1-rc.x` 只认 `handler(req, res)`，装上去路由一个都答不上来。该下限写在 `package.json -> engines.dsh`，由 `tests/release-contract.test.ts` 守住 |
 
-**只读路由的暴露面**：`/api/orbis/state` 与 `/api/orbis/events` 本身不带鉴权（宿主只在 `serveResource` 里做 GET/HEAD 过滤）。所以它们额外做了一层收容检查：跨站页面、`Origin` 与 `Host` 不一致的请求一律 403；没有浏览器 fetch 元信息的普通客户端只在 loopback 地址上被应答。桌面端与「同源打开的 GUI」正常；把 DSH 监听到局域网后，**直接 curl 该路由**会被拒。这不是鉴权 —— 真正的宿主 cookie 校验需要插件拿不到的密钥，见 README 末尾的待办。
+**只读路由的暴露面（只许本机）**：`/api/orbis/state` 与 `/api/orbis/events` 不带鉴权（宿主只在 `serveResource` 里做 GET/HEAD 过滤），所以它们自己做了一层收容检查，规则从 2.1.7 起收紧为：
+
+| 请求 | 结果 |
+|---|---|
+| `Host` 是 `127.x.x.x` / `localhost` / `[::1]`，浏览器同源访问 | ✅ 200 |
+| `Host` 是本机地址，但 `Origin` 指向别的域 | ❌ 403 |
+| `Host` 非 loopback（哪怕页面自称同源） | ❌ 403 |
+| `Origin: null`（沙箱 iframe、`file://` 页面） | ❌ 403 |
+| `Sec-Fetch-Site` 是 `cross-site` / `same-site` | ❌ 403 |
+
+也就是说：**把 DSH 监听到局域网后，别的设备（手机、另一台电脑）看不到这个面板** —— 宁可不可用，也不要一个"看起来能用、实际不设防"的入口。这一条是有意的取舍。
+
+**它不是鉴权，这点必须说清楚。** 载体的 `serveResource` 只把请求头交给插件、不传 peer 地址（这一点是从 `app.asar` 里的实现读出来的），所以插件无法区分"本机进程"和"局域网里伪造了 `Host: 127.0.0.1` 的进程"。上述检查能挡住浏览器发起的读取（包括 DNS rebinding 那种形状），挡不住一个会自己编请求头的局域网进程。**如果你确实要把 DSH 暴露到局域网，请在前面挂一个有认证的反向代理**，不要依赖这层检查。
 
 ### 安装 / 卸载
 
@@ -273,7 +285,7 @@ npmmirror 对新版本有分钟级同步延迟；刚发布的版本如果 404，
    | 返回 | 含义 |
    |---|---|
    | `200` | 正常，Host 半在跑且路由已注册 |
-   | `403` | 被收容层拒了 —— 用了局域网 IP、跨站 Origin，或请求头里没有浏览器 fetch 元信息又不是 loopback（见上一节） |
+   | `403` | 被收容层拒了 —— 用了非 loopback 的地址（如局域网 IP）、跨站 Origin、`Origin: null`，或 `Sec-Fetch-Site` 声明是跨站（见上一节） |
    | `404` | 路由没注册：DSH 版本低于 `0.2.2-rc.1`，或插件没启用 |
    | 连接被拒 | 端口不对 / DSH 没监听 |
 
@@ -300,9 +312,9 @@ dsh plugin --profile desktop remove dsh-orbis            # CLI
 | 类型检查（`strict` + `noUncheckedIndexedAccess`） | `tsc --noEmit -p tsconfig.json` | ✅ 0 错误 |
 | 格式 | `prettier --check` | ✅ 全部文件符合（CI 独立作业守着） |
 | 文字对比度 | `vitest run tests/contrast.test.ts` | ✅ 四份样式表全部文本 ≥ WCAG AA（4.5:1；图标 ≥3:1），由脚本按真实色值算 |
-| 单元 / 集成测试 | `vitest run` | ✅ **380 项 / 25 文件**全过（含发布契约：产物 banner 必须与 `package.json` 同版本） |
+| 单元 / 集成测试 | `vitest run` | ✅ **384 项 / 25 文件**全过（含发布契约：产物 banner 必须与 `package.json` 同版本） |
 | 构建 | `node scripts/build.mjs` | ✅ `index.js` 71.4 kB、`client.js` 682.4 kB（41 模块），两次构建 sha256 一致 |
-| 发布体积 | `npm pack` | ✅ 19 个文件、827.9 kB（截图已转 WebP，8.7 MB → 613 kB） |
+| 发布体积 | `npm pack` | ✅ 19 个文件、828.4 kB（截图已转 WebP，8.7 MB → 613 kB） |
 | 运行时数据通路 | `curl /api/orbis/state` | ✅ 返回 v2 快照：`task.taskTitle` / `task.phase` / `task.silence.label` / 活动行 / 计数 全部在线生成 |
 | 静默与执行态共存 | 同上（工具执行中连续采样） | ✅ `silenceMs` 44→2112→4158 递增，状态保持 `executing` |
 | Host 行激活 | `plugin_manager list_plugins` / `set_plugin` | ✅ 重载 `applied`，无 warning |

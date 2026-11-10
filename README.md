@@ -8,6 +8,18 @@
 - 只读、只观察：不执行工具、不写会话、不落库。
 - 不修改 DSH 源码；Host 与 Client 各自可独立停用；总开关关闭后连渲染器一起释放。
 
+## 安装
+
+```bash
+dsh plugin --profile desktop add dsh-orbis
+```
+
+装完**刷新一次 Harness 页面**即可（浏览器半每个页面代次只加载一次）。如果你是用 `dsh web` 启动的，把 `desktop` 换成 `web`。
+
+不想用命令行？GUI 也可以：**设置 → 插件 → 添加插件 → 安装第三方插件**，填包名 `dsh-orbis`。
+
+其他通道（GitHub tag 安装、离线 tarball、本地 `link:` 开发安装）、指定版本与卸载方式，见「五、开发」里的**安装 / 卸载**小节。
+
 ## 预览
 
 十一状态的 3D 能量球（headless Chrome + SwiftShader 真实 WebGL 渲染，非示意图）：
@@ -259,7 +271,7 @@ pnpm verify         # build + typecheck + test + format:check
 
 #### spec 语法
 
-`plugin_manager` 与 CLI 共用同一个解析器（`dsh-plugin-manager` 的 `parseInstallSpec`），四类写法：
+GUI 与 `plugin_manager` 走同一个解析器（`dsh-plugin-manager` 的 `parseInstallSpec`）。**`dsh plugin` 不走它** —— 它把参数原样转给 pnpm（`dsh plugin --help`：「forwarding the remaining arguments to pnpm」），所以"相对路径会被直接拒绝"这类校验只属于前两条通道。四类写法：
 
 | 形式 | 写法示例 | 说明 |
 |---|---|---|

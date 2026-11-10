@@ -20,9 +20,10 @@ import { createRoot, type Root } from 'react-dom/client';
 import { DEFAULT_SETTINGS } from '../src/client/contracts';
 import { OrbitLayer } from '../src/client/layer';
 import { useOrbitStore } from '../src/client/store';
-import type { OrbitSnapshot } from '../src/shared/protocol';
+import { ORBIT_PROTOCOL_VERSION, type OrbitSnapshot } from '../src/shared/protocol';
 
 const SNAPSHOT = {
+  protocol: ORBIT_PROTOCOL_VERSION,
   version: 1,
   sessionId: 's1',
   agentState: 'idle',
@@ -61,6 +62,7 @@ beforeEach(() => {
     visible: true,
     hudCollapsed: false,
     hudPinned: true,
+    stale: false,
   });
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -147,5 +149,30 @@ describe('focus', () => {
 
     expect(document.activeElement).toBe(outside);
     outside.remove();
+  });
+});
+
+/*
+ * The protocol-mismatch notice. The store drops a snapshot from a Host that speaks
+ * another protocol (see tests/protocol-version.test.ts), so the shell has nothing
+ * to draw — but a blank pane reads as "the plugin is broken" and sends the user to
+ * the issue tracker instead of the refresh button.
+ */
+describe('protocol mismatch surface', () => {
+  it('replaces every surface with one sentence that names the fix', () => {
+    act(() => useOrbitStore.setState({ stale: true }));
+    expect(container?.querySelector('[data-orbis-surface="workspace"]')).toBeNull();
+    const notice = container?.querySelector<HTMLButtonElement>('[data-orbis-surface="stale"]');
+    expect(notice).not.toBeNull();
+    expect(notice?.textContent).toBe('版本不匹配，请刷新页面');
+    expect(notice?.getAttribute('aria-label')).toBe('版本不匹配，请刷新页面');
+    expect(notice?.getAttribute('type')).toBe('button');
+  });
+
+  it('stays gone once the Host speaks the same protocol again', () => {
+    act(() => useOrbitStore.setState({ stale: true }));
+    expect(container?.querySelector('[data-orbis-surface="stale"]')).not.toBeNull();
+    act(() => useOrbitStore.getState().setSnapshot(SNAPSHOT));
+    expect(container?.querySelector('[data-orbis-surface="stale"]')).toBeNull();
   });
 });

@@ -41,7 +41,14 @@ const CSS = `
 .no-launcher-fallback[data-active="false"]{display:none}
 .no-launcher-fallback{position:absolute;inset:0;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--no-accent) 55%, ${ORBIT_PALETTE.surface}), ${ORBIT_PALETTE.bg} 74%)}
 .no-launcher-fallback i{display:block;width:10px;height:10px;border-radius:50%;background:${ORBIT_PALETTE.label};opacity:.9}
-.no-launcher-badge{position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:color-mix(in srgb, var(--no-accent) 82%, #000 18%);color:#04101f;font:600 10px/16px ui-monospace,SFMono-Regular,Menlo,monospace;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.35)}
+/*
+ * The badge is accent *ink* on a dark chip, not light ink on an accent fill. The
+ * fill version worked for the bright accents and failed for the dim ones — purple
+ * (#9875FF) came out at 4.06:1 with its dark #04101f digits. Accent-as-ink clears
+ * 4.5:1 on every state colour (worst case is purple at 5.7:1) and matches how the
+ * tooltip already paints its bold part with var(--no-accent).
+ */
+.no-launcher-badge{position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:rgba(10,17,34,.94);box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--no-accent) 42%, transparent), 0 2px 6px rgba(0,0,0,.35);color:var(--no-accent);font:600 10px/16px ui-monospace,SFMono-Regular,Menlo,monospace;text-align:center}
 .no-launcher-tip{position:absolute;right:calc(100% + 10px);top:50%;transform:translateY(-50%);white-space:nowrap;padding:6px 10px;border-radius:10px;background:rgba(12,20,36,.86);backdrop-filter:blur(10px);border:1px solid rgba(140,170,230,.22);color:${ORBIT_PALETTE.label};font:500 11.5px/1.3 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;opacity:0;pointer-events:none;transition:opacity .16s ease}
 .no-launcher:hover .no-launcher-tip,.no-launcher:focus-visible .no-launcher-tip{opacity:1}
 .no-launcher-tip b{color:var(--no-accent);font-weight:600}

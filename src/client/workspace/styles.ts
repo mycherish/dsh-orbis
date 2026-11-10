@@ -15,6 +15,21 @@ import { ORBIT_PALETTE } from '../contracts';
 /** `a(ORBIT_PALETTE.blue, 20)` → blue at 20% alpha, derived, never hard-coded. */
 const a = (color: string, pct: number): string => `color-mix(in srgb, ${color} ${pct}%, transparent)`;
 
+/**
+ * Tertiary text ink: `labelDim` at no less than 85% alpha.
+ *
+ * `labelDim` (#93A4C4) is 6.6:1 on the glass panel, but every extra dimmer lands on
+ * top of that: this file used to paint hints at 62% (measured **1.90:1**) and the
+ * row separator at 46% (**1.32:1**). On a dark theme that reads as "subtle" on the
+ * designer's screen and as "blank" on someone else's. WCAG AA wants 4.5:1 for text
+ * this size, which is 85% — `tests/contrast.test.ts` computes it from this sheet.
+ *
+ * The percentages above 85 are left alone, so the sheet keeps three visible levels
+ * of quiet: 85 / 92 / 96.
+ */
+const QUIET_INK_PCT = 85;
+const quiet = (pct: number): string => a(ORBIT_PALETTE.labelDim, Math.max(pct, QUIET_INK_PCT));
+
 /** Mix two palette colours (used for gradient midpoints). */
 const mix = (from: string, to: string, pct: number): string =>
   `color-mix(in srgb, ${from} ${100 - pct}%, ${to})`;
@@ -340,7 +355,7 @@ export function buildStyles(): string {
   font-size: 9px;
   letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: ${a(P.labelDim, 84)};
+  color: ${quiet(84)};
   padding: 3px 9px;
   border-radius: 999px;
   border: 1px solid ${a(P.label, 8)};
@@ -353,7 +368,7 @@ export function buildStyles(): string {
   font-size: 8.5px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: ${a(P.labelDim, 62)};
+  color: ${quiet(62)};
 }
 .no-legend-item { display: inline-flex; align-items: center; gap: 5px; }
 .no-legend-swatch {
@@ -385,7 +400,7 @@ export function buildStyles(): string {
   font-size: 9.5px;
   letter-spacing: 0.08em;
   font-variant-numeric: tabular-nums;
-  color: ${a(P.labelDim, 78)};
+  color: ${quiet(78)};
   padding: 1px 6px;
   border-radius: 999px;
   border: 1px solid ${a(P.label, 8)};
@@ -453,12 +468,12 @@ export function buildStyles(): string {
   gap: 0;
   min-width: 0;
   font-size: 10px;
-  color: ${a(P.labelDim, 92)};
+  color: ${quiet(92)};
 }
 .no-row-sub > * + *::before {
   content: "·";
   margin: 0 5px;
-  color: ${a(P.labelDim, 46)};
+  color: ${quiet(46)};
 }
 .no-row-kind { flex: none; white-space: nowrap; }
 .no-row-target {
@@ -466,7 +481,7 @@ export function buildStyles(): string {
   min-width: 0;
   font-family: ${MONO};
   font-size: 9.5px;
-  color: ${a(P.labelDim, 82)};
+  color: ${quiet(82)};
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -476,7 +491,7 @@ export function buildStyles(): string {
   font-family: ${MONO};
   font-size: 9.5px;
   font-variant-numeric: tabular-nums;
-  color: ${a(P.labelDim, 74)};
+  color: ${quiet(74)};
   white-space: nowrap;
 }
 
@@ -491,7 +506,7 @@ export function buildStyles(): string {
   font-family: ${MONO};
   font-size: 9.5px;
   font-variant-numeric: tabular-nums;
-  color: ${a(P.labelDim, 84)};
+  color: ${quiet(84)};
   min-width: 30px;
   text-align: right;
   white-space: nowrap;
@@ -529,7 +544,7 @@ export function buildStyles(): string {
   transform: rotate(-18deg) scaleY(0.42);
 }
 .no-empty-title { font-size: 12.5px; font-weight: 550; color: ${mix(P.label, P.labelDim, 44)}; letter-spacing: 0.02em; }
-.no-empty-sub { font-size: 10.5px; color: ${a(P.labelDim, 82)}; max-width: 260px; line-height: 1.5; }
+.no-empty-sub { font-size: 10.5px; color: ${quiet(82)}; max-width: 260px; line-height: 1.5; }
 
 .no-skeleton { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 9px; padding: 4px 8px 0 2px; }
 .no-skel-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) 30px; align-items: center; gap: 9px; }
@@ -540,7 +555,7 @@ export function buildStyles(): string {
 .no-skel-time { height: 5px; border-radius: 3px; }
 .no-skel-foot { margin-top: auto; padding: 10px 2px 6px; text-align: center; }
 .no-skel-foot-title { font-size: 11.5px; color: ${mix(P.label, P.labelDim, 50)}; letter-spacing: 0.03em; }
-.no-skel-foot-hint { margin-top: 3px; font-family: ${MONO}; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: ${a(P.labelDim, 62)}; }
+.no-skel-foot-hint { margin-top: 3px; font-family: ${MONO}; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: ${quiet(62)}; }
 
 .no-shimmer {
   background-color: ${a(P.label, 7)};
@@ -567,7 +582,7 @@ export function buildStyles(): string {
   font-size: 8.5px;
   letter-spacing: 0.15em;
   text-transform: uppercase;
-  color: ${a(P.labelDim, 62)};
+  color: ${quiet(62)};
   white-space: nowrap;
 }
 .no-rail {
@@ -644,7 +659,7 @@ export function buildStyles(): string {
   font-size: 8px;
   letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: ${a(P.labelDim, 74)};
+  color: ${quiet(74)};
   white-space: nowrap;
 }
 .no-stat-spacer { flex: 1; min-width: 8px; }
@@ -682,7 +697,7 @@ export function buildStyles(): string {
   font-size: 8px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: ${a(P.labelDim, 68)};
+  color: ${quiet(68)};
 }
 .no-set-row {
   display: flex;
@@ -695,7 +710,7 @@ export function buildStyles(): string {
 .no-set-row:first-of-type { border-top: none; }
 .no-set-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .no-set-label { font-size: 11.5px; color: ${P.label}; white-space: nowrap; }
-.no-set-hint { font-size: 9.5px; color: ${a(P.labelDim, 78)}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.no-set-hint { font-size: 9.5px; color: ${quiet(78)}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .no-set-control { flex: none; }
 
 .no-seg {
@@ -724,7 +739,7 @@ export function buildStyles(): string {
   border-radius: 6px;
   font-size: 10px;
   line-height: 1.35;
-  color: ${a(P.labelDim, 96)};
+  color: ${quiet(96)};
   white-space: nowrap;
   transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
 }

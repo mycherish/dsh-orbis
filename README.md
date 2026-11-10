@@ -203,15 +203,18 @@ DSH Host 进程                         浏览器（DSH Web GUI）
 ```bash
 git clone https://github.com/mycherish/dsh-orbis.git
 cd dsh-orbis
-pnpm install        # three / zustand / esbuild / typescript / vitest
+pnpm install        # three / zustand / esbuild / typescript / vitest / prettier
 pnpm build          # 产出 index.js（Host ESM）与 client.js（ModuleLoader 格式）
 pnpm typecheck      # tsc --noEmit（整仓）
 pnpm test           # vitest
-pnpm verify         # build + typecheck + test
+pnpm format         # prettier --write（改动前跑一次，CI 会检查）
+pnpm verify         # build + typecheck + test + format:check
 ```
 
 - **构建**：`scripts/build.mjs` 用 esbuild 直接产出两个产物；`client.js` 由打包后的 CJS 体包进 `window.__ModuleLoader__.load({ id, factory(require) })` 信封，`react` 保持 external（由页面模块表提供），`three` 与 `zustand` 打进包内（离线可用，不依赖 CDN）。
 - 未使用 Vite：本插件只需要两个入口的单文件产物，esbuild 直接完成即可，少一层配置。
+- **格式**：Prettier（`printWidth: 110`、单引号、尾逗号 all），CI 有独立的 `format:check` 作业。格式化历史提交记在 `.git-blame-ignore-revs` 里，`git config blame.ignoreRevsFile .git-blame-ignore-revs` 之后 `git blame` 不会把它算到每一行头上。
+- **没有 ESLint**：`typescript-eslint` 8.72.2 在 TypeScript 7.0.2 下**拒绝加载**（`does not support TS 7.0`，上游 issue #10940）。加一个跑不起来的 lint 步骤比没有更糟；`tsc --noEmit`（`strict` + `noUncheckedIndexedAccess`）本就是这里的承重检查。等上游支持 TS ≥ 7.1 再补一个 CI 步骤即可。
 
 ### 环境要求
 
@@ -295,9 +298,11 @@ dsh plugin --profile desktop remove dsh-orbis            # CLI
 | 项 | 命令 / 方式 | 结果 |
 |---|---|---|
 | 类型检查（`strict` + `noUncheckedIndexedAccess`） | `tsc --noEmit -p tsconfig.json` | ✅ 0 错误 |
-| 单元 / 集成测试 | `vitest run` | ✅ **342 项 / 21 文件**全过（含发布契约：产物 banner 必须与 `package.json` 同版本） |
-| 构建 | `node scripts/build.mjs` | ✅ `index.js` 70.1 kB、`client.js` 680.9 kB（41 模块），两次构建 sha256 一致 |
-| 发布体积 | `npm pack` | ✅ 19 个文件、826.1 kB（截图已转 WebP，8.7 MB → 613 kB） |
+| 格式 | `prettier --check` | ✅ 全部文件符合（CI 独立作业守着） |
+| 文字对比度 | `vitest run tests/contrast.test.ts` | ✅ 四份样式表全部文本 ≥ WCAG AA（4.5:1；图标 ≥3:1），由脚本按真实色值算 |
+| 单元 / 集成测试 | `vitest run` | ✅ **362 项 / 23 文件**全过（含发布契约：产物 banner 必须与 `package.json` 同版本） |
+| 构建 | `node scripts/build.mjs` | ✅ `index.js` 71.2 kB、`client.js` 682.3 kB（41 模块），两次构建 sha256 一致 |
+| 发布体积 | `npm pack` | ✅ 19 个文件、827.0 kB（截图已转 WebP，8.7 MB → 613 kB） |
 | 运行时数据通路 | `curl /api/orbis/state` | ✅ 返回 v2 快照：`task.taskTitle` / `task.phase` / `task.silence.label` / 活动行 / 计数 全部在线生成 |
 | 静默与执行态共存 | 同上（工具执行中连续采样） | ✅ `silenceMs` 44→2112→4158 递增，状态保持 `executing` |
 | Host 行激活 | `plugin_manager list_plugins` / `set_plugin` | ✅ 重载 `applied`，无 warning |
@@ -318,7 +323,8 @@ dsh plugin --profile desktop remove dsh-orbis            # CLI
 3. **HUD 里的 `0 额外 Token` 只指插件自身**：不表示 DSH 主任务不消耗 Token。
 4. **活动行一条对应一次工具调用**：文件类工具那一条同时是"工具节点"和"文件节点"（带 `fileKind` + 脱敏 `safeTarget`），不重复两行。
 5. **`quiet` 只覆盖"没有工具在跑"的静默**：跑长命令时的静默由 `quietLevel` 单独上报，状态保持 `executing`，避免把"在干活"说成"卡住"。
-6. **协议版本升到 3**：DTO 字段更名（`name→label`、`timestamp→startedAt`、`target→safeTarget`），旧客户端读到会拒绝渲染。
+6. **协议版本升到 3，并且写进了快照**：DTO 字段更名（`name→label`、`timestamp→startedAt`、`target→safeTarget`）。快照现在带 `protocol` 字段，客户端比对不上就丢掉整份数据、只显示一句「版本不匹配，请刷新页面」——不是抛异常，也不是拿旧字段硬渲染。真实会撞上的场景只有一个：页面代次活着、Host 进程换了新版本。
+7. **二级文字的透明度有下限**：`labelDim` 本身是 6.6:1，但样式里再叠一层 `color-mix(… 62%, transparent)` 就掉到 1.90:1。现在所有小字号文字走同一个 `quiet()` 下限（85%，约 5.2:1），只保留 85 / 92 / 96 三档层次。`tests/contrast.test.ts` 从样式表本身算，不靠人眼看。
 
 ### 上手
 

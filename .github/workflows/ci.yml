@@ -39,6 +39,30 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
 
+  format:
+    name: formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Prettier only — deliberately no ESLint. `typescript-eslint` refuses to load
+      # against TypeScript 7.0 ("does not support TS 7.0", tracking issue #10940),
+      # and this repo is on 7.0.2. Adding a lint step that cannot start would be
+      # worse than not having one: `tsc --noEmit` with `strict` and
+      # `noUncheckedIndexedAccess` is already the load-bearing check here.
+      - run: pnpm format:check
+
   artifacts:
     name: committed artifacts match the source
     runs-on: ubuntu-latest

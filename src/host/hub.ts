@@ -16,6 +16,7 @@
 import {
   CALL_TIMEOUT_MS,
   MAX_ACTIVITY_ROWS,
+  ORBIT_PROTOCOL_VERSION,
   type OrbitActivity,
   type OrbitActivityStatus,
   type OrbitAgentState,
@@ -825,6 +826,7 @@ export class OrbitHub {
     const now = this.clock();
     if (record === undefined) {
       return {
+        protocol: ORBIT_PROTOCOL_VERSION,
         version: 0,
         agentState: 'idle',
         activeTools: 0,
@@ -840,6 +842,7 @@ export class OrbitHub {
     const machine = record.machine;
     const agentState: OrbitAgentState = computeState(machine, at);
     return {
+      protocol: ORBIT_PROTOCOL_VERSION,
       version: record.version,
       sessionId: record.sessionId,
       agentState,

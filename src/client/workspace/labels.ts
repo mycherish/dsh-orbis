@@ -16,6 +16,14 @@ import type {
 import type { OrbitConnection } from '../contracts';
 
 export const LABELS = {
+  protocol: {
+    /**
+     * Shown when the Host answers with a protocol this bundle was not built for —
+     * a page generation outliving a Host upgrade. Names the fix, not the fault:
+     * the user cannot do anything with "protocol 3 ≠ 4".
+     */
+    stale: '版本不匹配，请刷新页面',
+  },
   panel: {
     /** Accessible name of the dialog itself. */
     ariaLabel: 'Caelum Orbis 工作区',

@@ -1,0 +1,3 @@
+# Formatting-only commits: skip them in `git blame` so the noise stays out of
+# history. Use `git config blame.ignoreRevsFile .git-blame-ignore-revs`.
+6cd7a0ae83b6313cfeb3ec8b5e287035bc78643f

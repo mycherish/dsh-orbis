@@ -11,7 +11,7 @@
  */
 import { create } from 'zustand';
 import { DEFAULT_SETTINGS, type OrbitConnection, type OrbitSettings } from './contracts';
-import type { OrbitSnapshot } from '../shared/protocol';
+import { isProtocolCompatible, type OrbitSnapshot } from '../shared/protocol';
 
 /** Exported so the migration test pins the exact legacy key it must read. */
 export const SETTINGS_KEY = 'orbis.settings.v2';
@@ -269,6 +269,11 @@ export interface OrbitStoreState {
   hudCollapsed: boolean;
   /** The user pinned the panel open: `auto` no longer folds it while idle. */
   hudPinned: boolean;
+  /**
+   * The Host answered with a protocol this bundle was not built for — a page
+   * generation outlived a Host upgrade. Nothing from that Host is applied.
+   */
+  stale: boolean;
 
   setSnapshot: (snapshot: OrbitSnapshot | null) => void;
   setConnection: (connection: OrbitConnection) => void;
@@ -292,9 +297,16 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
   fps: 0,
   hudCollapsed: loadHudCollapsed(),
   hudPinned: loadHudPinned(),
+  stale: false,
 
   setSnapshot: (snapshot) => {
     const current = get().snapshot;
+    // A mismatched Host is not a crash and not silence: record it, drop the data,
+    // and let the shell say the one useful sentence ("刷新页面").
+    if (!isProtocolCompatible(snapshot)) {
+      if (!get().stale) set({ stale: true, snapshot: null });
+      return;
+    }
     // Ignore out-of-order or duplicate frames.
     if (snapshot === null) {
       set({ snapshot: null });
@@ -306,9 +318,12 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
       current.sessionId === snapshot.sessionId &&
       current.updatedAt === snapshot.updatedAt
     ) {
+      // An identical frame still proves the Host is compatible again, so it has to
+      // clear the mismatch flag even though the snapshot itself is a no-op.
+      if (get().stale) set({ stale: false });
       return;
     }
-    set({ snapshot });
+    set(get().stale ? { snapshot, stale: false } : { snapshot });
   },
   setConnection: (connection) => set({ connection }),
   patchSettings: (patch) => {

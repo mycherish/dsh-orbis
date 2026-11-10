@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS } from '../src/client/contracts';
 import { deriveVisual, resolveQuality } from '../src/client/visual';
-import type { OrbitSnapshot } from '../src/shared/protocol';
+import { ORBIT_PROTOCOL_VERSION, type OrbitSnapshot } from '../src/shared/protocol';
 
 function snapshot(overrides: Partial<OrbitSnapshot> = {}): OrbitSnapshot {
   return {
+    protocol: ORBIT_PROTOCOL_VERSION,
     version: 1,
     sessionId: 's1',
     agentState: 'idle',

@@ -13,3 +13,7 @@ docs/
 
 # Not part of the source tree
 pnpm-lock.yaml
+
+# Prose tables: reflowing them is churn for no gain, and every table here is
+# hand-tuned to stay readable in a terminal-width diff.
+README.md

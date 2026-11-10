@@ -58,7 +58,14 @@ let lastSessionId: string | undefined;
 
 /** The only thing the overlay draws while the master switch is off. */
 const ENABLE_CSS = `
-.no-enable{position:fixed;right:24px;bottom:24px;z-index:2147482990;padding:5px 11px;border-radius:14px;border:1px solid rgba(150,175,230,.26);background:rgba(10,17,34,.82);backdrop-filter:blur(10px);color:${ORBIT_PALETTE.labelDim};font:500 11px/1.4 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;cursor:pointer;opacity:.62;transition:opacity .18s ease,color .18s ease}
+/*
+ * The recovery button is deliberately recessed — but recessed is not an excuse to
+ * be unreadable. Painting \`labelDim\` at \`opacity:.62\` multiplied the text alpha and
+ * landed on 3.58:1, under the 4.5:1 floor (tests/contrast.test.ts computes this from
+ * the sheet). Keeping the same 62% recess and starting from \`label\` instead reads at
+ * 6.7:1 and looks the same at a glance.
+ */
+.no-enable{position:fixed;right:24px;bottom:24px;z-index:2147482990;padding:5px 11px;border-radius:14px;border:1px solid rgba(150,175,230,.26);background:rgba(10,17,34,.82);backdrop-filter:blur(10px);color:${ORBIT_PALETTE.label};font:500 11px/1.4 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;cursor:pointer;opacity:.62;transition:opacity .18s ease,color .18s ease}
 .no-enable:hover{opacity:1;color:${ORBIT_PALETTE.label}}
 .no-enable:focus-visible{outline:2px solid ${ORBIT_PALETTE.cyan};outline-offset:3px}
 @media (max-width:720px){.no-enable{right:12px;bottom:12px}}
@@ -172,6 +179,7 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
   const position = useOrbitStore((state) => state.position);
   const hudCollapsed = useOrbitStore((state) => state.hudCollapsed);
   const hudPinned = useOrbitStore((state) => state.hudPinned);
+  const stale = useOrbitStore((state) => state.stale);
   const setSnapshot = useOrbitStore((state) => state.setSnapshot);
   const setConnection = useOrbitStore((state) => state.setConnection);
   const setOpen = useOrbitStore((state) => state.setOpen);
@@ -461,6 +469,32 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
     setHudCollapsed(false);
     setHudPinned(true);
   }, [setHudCollapsed, setHudPinned, setOpen, settings.displayMode, settings.showHud]);
+
+  /*
+   * A Host that speaks a newer protocol than this bundle. The data is dropped
+   * upstream (see `setSnapshot`), so there is nothing honest to draw — but silence
+   * looks exactly like "the plugin is broken", which sends the user to the issue
+   * tracker instead of the refresh button. Say the one useful thing.
+   */
+  if (stale) {
+    return (
+      <React.Fragment>
+        <style>{ENABLE_CSS}</style>
+        <button
+          type="button"
+          className="no-enable"
+          data-orbis-surface="stale"
+          title={LABELS.protocol.stale}
+          aria-label={LABELS.protocol.stale}
+          onClick={() => {
+            window.location.reload();
+          }}
+        >
+          {LABELS.protocol.stale}
+        </button>
+      </React.Fragment>
+    );
+  }
 
   // ---- master switch off: one affordance, and nothing else ---------------
   if (!enabled) {

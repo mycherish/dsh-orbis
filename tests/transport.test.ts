@@ -9,10 +9,11 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startTransport, type Transport } from '../src/client/transport';
-import type { OrbitSnapshot } from '../src/shared/protocol';
+import { ORBIT_PROTOCOL_VERSION, type OrbitSnapshot } from '../src/shared/protocol';
 
 /** Only the identity matters here; the transport never reads the other fields. */
-const snap = (sessionId: string, version: number) => ({ sessionId, version }) as unknown as OrbitSnapshot;
+const snap = (sessionId: string, version: number) =>
+  ({ protocol: ORBIT_PROTOCOL_VERSION, sessionId, version }) as unknown as OrbitSnapshot;
 
 const ok = (body: unknown): Response =>
   new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });

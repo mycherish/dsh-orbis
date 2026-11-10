@@ -36,10 +36,11 @@ import { createRoot, type Root } from 'react-dom/client';
 import { DEFAULT_SETTINGS } from '../src/client/contracts';
 import { OrbitLayer } from '../src/client/layer';
 import { useOrbitStore } from '../src/client/store';
-import type { OrbitSnapshot } from '../src/shared/protocol';
+import { ORBIT_PROTOCOL_VERSION, type OrbitSnapshot } from '../src/shared/protocol';
 
 /** Enough of a snapshot for the surfaces to render; nothing here reads the rest. */
 const SNAPSHOT = {
+  protocol: ORBIT_PROTOCOL_VERSION,
   version: 1,
   sessionId: 's1',
   agentState: 'idle',

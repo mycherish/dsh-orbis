@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OrbitHub } from '../src/host/hub';
 import { registerOrbitRoutes, type WebServerLike } from '../src/host/routes';
-import { EVENTS_ROUTE, HEARTBEAT_MS, STATE_ROUTE, type OrbitFrame } from '../src/shared/protocol';
+import {
+  EVENTS_ROUTE,
+  HEARTBEAT_MS,
+  ORBIT_PROTOCOL_VERSION,
+  STATE_ROUTE,
+  type OrbitFrame,
+} from '../src/shared/protocol';
 
 const T0 = 1_700_000_000_000;
 
@@ -275,6 +281,90 @@ describe('carrier contract', () => {
     } finally {
       local.dispose();
     }
+  });
+});
+
+/*
+ * `WebServer.serveResource`, reproduced from the 0.2.2-rc.1 bundle
+ * (`@deepseek-ai/dsh-host-webserver/lib/index.js`).
+ *
+ * Deliberately a *copy* rather than a devDependency: that package is internal, its
+ * npm availability is not promised, and pinning the plugin's release cadence to an
+ * unversioned private API is a worse trade than re-reading twelve lines when the
+ * Host is upgraded. What it buys is the one thing a shape assertion cannot: proof
+ * that the plugin's route actually answers *when dispatched this way*, and that the
+ * order (function → resource → handler) is the order we think it is.
+ *
+ * When bumping `engines.dsh`, re-read that file and re-copy this.
+ */
+type Responder =
+  | ((req: Request) => Promise<Response>)
+  | { resource: (req: Request) => Promise<Response> }
+  | { handler: (req: Request) => Promise<Response> };
+
+async function serveResource(responder: Responder, req: Request): Promise<Response> {
+  if (typeof responder === 'function') return responder(req);
+  if ('resource' in responder) return responder.resource(req);
+  return responder.handler(req);
+}
+
+describe('carrier dispatch (replica of serveResource)', () => {
+  it('picks function, then resource, then handler, in that order', async () => {
+    const order: string[] = [];
+    const asFunction = async (): Promise<Response> => {
+      order.push('function');
+      return new Response('f');
+    };
+    await serveResource(asFunction, pageRequest(STATE_ROUTE));
+    await serveResource(
+      {
+        resource: async () => {
+          order.push('resource');
+          return new Response('r');
+        },
+      },
+      pageRequest(STATE_ROUTE),
+    );
+    await serveResource(
+      {
+        handler: async () => {
+          order.push('handler');
+          return new Response('h');
+        },
+      },
+      pageRequest(STATE_ROUTE),
+    );
+    expect(order).toEqual(['function', 'resource', 'handler']);
+  });
+
+  it("answers the plugin's own route through it, with a real snapshot", async () => {
+    const hub = new OrbitHub({ now: () => T0 });
+    const { routes, webServer } = fakeServer();
+    const local = registerOrbitRoutes(hub, webServer);
+    try {
+      const route = routes[0];
+      expect(route).toBeDefined();
+      if (route === undefined) return;
+      const response = await serveResource(route, pageRequest(STATE_ROUTE));
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('application/json');
+      const body = (await response.json()) as { protocol?: number; agentState?: string };
+      expect(body.protocol).toBe(ORBIT_PROTOCOL_VERSION);
+      expect(body.agentState).toBe('idle');
+    } finally {
+      local.dispose();
+    }
+  });
+
+  it('would silently do nothing for a handler-only route, which is why we ship resource', async () => {
+    // The negative control: 0.2.1-rc.x has only the last branch, so this is the
+    // shape that would work there and the shape that never answers here.
+    const asHandlerOnly = {
+      handler: async (): Promise<Response> => new Response('never called'),
+    };
+    expect('resource' in asHandlerOnly).toBe(false);
+    const response = await serveResource(asHandlerOnly, pageRequest(STATE_ROUTE));
+    expect(await response.text()).toBe('never called');
   });
 });
 

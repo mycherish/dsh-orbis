@@ -25,6 +25,22 @@ export type {
 export const ORBIT_PROTOCOL_VERSION = 3;
 
 /**
+ * Does this snapshot speak the protocol this bundle was built for?
+ *
+ * The Host and the Client are shipped as one tarball, so they agree at install
+ * time. They can still be *loaded* apart: a page generation keeps its `client.js`
+ * in memory while the Host process restarts on a new version, which is exactly the
+ * upgrade path every user takes. The mismatch is not an error to throw — the Client
+ * degrades to a static orb and one line of text, because a black screen with a
+ * console error tells the user the plugin is broken, and "刷新页面" tells them the
+ * truth. A snapshot with no `protocol` at all is a Host older than this field.
+ */
+export function isProtocolCompatible(snapshot: { protocol?: number } | null | undefined): boolean {
+  if (snapshot === null || snapshot === undefined) return true;
+  return snapshot.protocol === ORBIT_PROTOCOL_VERSION;
+}
+
+/**
  * The eleven Agent states, in ascending visual activity.
  *
  * `starting` / `preparing` / `responding` / `quiet` / `interrupted` are derived
@@ -64,6 +80,8 @@ export interface OrbitMetrics {
 
 /** The complete state pushed to the Client: one snapshot replaces the previous. */
 export interface OrbitSnapshot {
+  /** `ORBIT_PROTOCOL_VERSION` of the Host that produced this snapshot. */
+  protocol: number;
   version: number;
   sessionId?: string;
   agentState: OrbitAgentState;

@@ -448,7 +448,19 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
   const collapseHud = React.useCallback(() => setHudCollapsed(true), [setHudCollapsed]);
   const expandHud = React.useCallback(() => setHudCollapsed(false), [setHudCollapsed]);
   const pinHud = React.useCallback((next: boolean) => setHudPinned(next), [setHudPinned]);
-  const openWorkspace = React.useCallback(() => setOpen(true), [setOpen]);
+  /**
+   * Open the detailed panel — and repair the switch if it is what made the panel
+   * unreachable.
+   *
+   * `showWorkspace: false` used to hide the header button, the launcher path and the
+   * settings sheet (which lives inside the panel) at once, so the preference could
+   * not be undone from the UI. The click means "show me the panel", so the switch
+   * follows the click; the only alternative was a user clearing localStorage.
+   */
+  const openWorkspace = React.useCallback(() => {
+    if (!settings.showWorkspace) patchSettings({ showWorkspace: true });
+    setOpen(true);
+  }, [patchSettings, setOpen, settings.showWorkspace]);
   /**
    * The compact orb is the only entry point in `compact` mode. In `auto` it
    * unfolds the panel; when the user pinned the ball-only mode it opens the

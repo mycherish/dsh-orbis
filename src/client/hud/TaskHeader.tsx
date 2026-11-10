@@ -108,17 +108,25 @@ export function TaskHeader(props: TaskHeaderProps): React.ReactElement {
         {chip}
       </span>
       <div className="no-hud-actions">
-        {props.showWorkspace ? (
-          <button
-            type="button"
-            className="no-hud-ibtn"
-            title="打开工作区"
-            aria-label="打开工作区"
-            onClick={props.onOpenWorkspace}
-          >
-            <MoreIcon />
-          </button>
-        ) : null}
+        {/*
+         * Always present, even when `showWorkspace` is off.
+         *
+         * That switch hides the detailed panel, and the settings sheet lives *inside*
+         * that panel — so hiding this button as well left the user with no way to turn
+         * the switch back on (reported from a real session; clearing localStorage was
+         * the only way out). When the panel is disallowed the same button means
+         * "enable it again", which `openWorkspace` in the shell implements.
+         */}
+        <button
+          type="button"
+          className="no-hud-ibtn"
+          data-hud-open-workspace=""
+          title={props.showWorkspace ? '打开工作区' : '重新启用详细 Workspace'}
+          aria-label={props.showWorkspace ? '打开工作区' : '重新启用详细 Workspace'}
+          onClick={props.onOpenWorkspace}
+        >
+          <MoreIcon />
+        </button>
         <button
           type="button"
           className="no-hud-ibtn"

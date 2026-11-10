@@ -312,9 +312,9 @@ dsh plugin --profile desktop remove dsh-orbis            # CLI
 | 类型检查（`strict` + `noUncheckedIndexedAccess`） | `tsc --noEmit -p tsconfig.json` | ✅ 0 错误 |
 | 格式 | `prettier --check` | ✅ 全部文件符合（CI 独立作业守着） |
 | 文字对比度 | `vitest run tests/contrast.test.ts` | ✅ 四份样式表全部文本 ≥ WCAG AA（4.5:1；图标 ≥3:1），由脚本按真实色值算 |
-| 单元 / 集成测试 | `vitest run` | ✅ **384 项 / 25 文件**全过（含发布契约：产物 banner 必须与 `package.json` 同版本） |
+| 单元 / 集成测试 | `vitest run` | ✅ **385 项 / 25 文件**全过（含发布契约：产物 banner 必须与 `package.json` 同版本） |
 | 构建 | `node scripts/build.mjs` | ✅ `index.js` 71.4 kB、`client.js` 682.4 kB（41 模块），两次构建 sha256 一致 |
-| 发布体积 | `npm pack` | ✅ 19 个文件、828.4 kB（截图已转 WebP，8.7 MB → 613 kB） |
+| 发布体积 | `npm pack` | ✅ 19 个文件、828.5 kB（截图已转 WebP，8.7 MB → 613 kB） |
 | 运行时数据通路 | `curl /api/orbis/state` | ✅ 返回 v2 快照：`task.taskTitle` / `task.phase` / `task.silence.label` / 活动行 / 计数 全部在线生成 |
 | 静默与执行态共存 | 同上（工具执行中连续采样） | ✅ `silenceMs` 44→2112→4158 递增，状态保持 `executing` |
 | Host 行激活 | `plugin_manager list_plugins` / `set_plugin` | ✅ 重载 `applied`，无 warning |

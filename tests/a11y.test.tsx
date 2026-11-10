@@ -176,3 +176,36 @@ describe('protocol mismatch surface', () => {
     expect(container?.querySelector('[data-orbis-surface="stale"]')).toBeNull();
   });
 });
+
+/*
+ * The dead end (found by the user, 2.1.8): turning 「详细 Workspace」 off hid the
+ * only button that opens the panel — and the settings sheet lives *inside* that
+ * panel, so there was no way back from the UI at all. Clearing localStorage was the
+ * only recovery.
+ *
+ * The repair is that opening also *is* the repair: the click means "show me the
+ * panel", so the switch follows the click instead of refusing it.
+ */
+describe('showWorkspace off must not strand the user', () => {
+  it('still offers an entry, and re-enables the panel when clicked', () => {
+    act(() => {
+      useOrbitStore.setState({
+        open: false,
+        settings: {
+          ...useOrbitStore.getState().settings,
+          enabled: true,
+          showHud: true,
+          showWorkspace: false,
+        },
+      });
+    });
+
+    const entry = container?.querySelector<HTMLButtonElement>('[data-hud-open-workspace]');
+    expect(entry, 'the header must keep a way into the panel').not.toBeNull();
+
+    act(() => entry?.click());
+
+    expect(useOrbitStore.getState().settings.showWorkspace, 'the switch follows the click').toBe(true);
+    expect(container?.querySelector('[data-orbis-surface="workspace"]')).not.toBeNull();
+  });
+});

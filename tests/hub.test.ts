@@ -885,3 +885,79 @@ describe('concurrent asks', () => {
     expect(hub.snapshot('s1').agentState).not.toBe('waiting');
   });
 });
+
+/*
+ * 2.1.11 reliability batch — H1 / H2 / H3.
+ *
+ * Each of these is the same shape of mistake: a piece of bookkeeping that the state
+ * machine clears but the activity rows do not, so the snapshot says two different
+ * things at once.
+ */
+describe('2.1.11: asks never outlive the run that was blocked on them', () => {
+  it('H1: a Turn that ends with an unanswered approval closes that row', () => {
+    const hub = new OrbitHub({ now: () => T0 });
+    hub.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } });
+    hub.handleSessionEvent('s1', { type: 'approval/asked', data: { id: 'ap1', toolName: 'write' } });
+    expect(hub.snapshot('s1').agentState).toBe('waiting');
+
+    hub.handleSessionEvent('s1', { type: 'turn/end', data: { reason: { kind: 'completed' } } });
+
+    const snapshot = hub.snapshot('s1');
+    const row = snapshot.events.find((event) => event.id === 'ap1');
+    /*
+     * The row must stop being *live*. Before this fix it stayed `running`, and
+     * `phase-inference` reads a live approval row as a high-confidence "blocked on
+     * the user" — for a Turn that had already finished.
+     *
+     * The phase itself may still read 等待审批 here, with medium confidence, because
+     * rule 3 falls back to "the majority of the last three rows": the newest row
+     * happens to be the approval. That is a statement about what was last observed,
+     * not about a pending block, so it is not what this test pins.
+     */
+    expect(row?.status, 'the row must not stay running').toBe('cancelled');
+    expect(snapshot.agentState).not.toBe('waiting');
+    hub.dispose();
+  });
+
+  it('H1: an Agent error closes a running question row too', () => {
+    const hub = new OrbitHub({ now: () => T0 });
+    hub.handleQuestion('s1', 'ask_user', 'call-9');
+    hub.handleError('s1', 'AUTH');
+
+    const row = hub.snapshot('s1').events.find((event) => event.id === 'question:call-9');
+    expect(row?.status).toBe('failed');
+    hub.dispose();
+  });
+
+  it('H2: a tick clears an ask that no running loop can still be blocked on', () => {
+    const hub = new OrbitHub({ now: () => T0 });
+    hub.handleQuestion('s1', 'ask_user', 'call-1');
+    expect(hub.snapshot('s1').agentState).toBe('waiting');
+
+    // The loop reports idle: nothing is waiting on the user any more. The ask id
+    // itself never got its release event (a cancelled ask, or a bridge placeholder
+    // whose durable event never arrived).
+    hub.handleStatus('s1', 'idle');
+    hub.tick();
+
+    const snapshot = hub.snapshot('s1');
+    expect(snapshot.agentState, '`waiting` must not be reachable from an idle loop').not.toBe('waiting');
+    expect(snapshot.events.find((event) => event.id === 'question:call-1')?.status).not.toBe('running');
+    hub.dispose();
+  });
+
+  it('H3: an approval whose event names no call is not adopted by the newest placeholder', () => {
+    const hub = new OrbitHub({ now: () => T0 });
+    // Two asks in flight, as two parallel tools would produce.
+    hub.handleApproval('s1', 'write', 'call-a');
+    hub.handleApproval('s1', 'shell', 'call-b');
+
+    // A durable event without a callId: it cannot be attributed to either one.
+    hub.handleSessionEvent('s1', { type: 'approval/asked', data: { id: 'ap-real', toolName: 'write' } });
+
+    const rows = hub.snapshot('s1').events.filter((event) => event.category === 'approval');
+    // Two placeholders keep their own identity, and the durable ask gets its own row.
+    expect(rows.map((row) => row.id).sort()).toEqual(['ap-real', 'bridge:call-a', 'bridge:call-b']);
+    hub.dispose();
+  });
+});

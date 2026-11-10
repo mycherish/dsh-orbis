@@ -20,7 +20,10 @@ export interface LauncherProps {
   translate: (key: string) => string;
   onToggle: () => void;
   onHide: () => void;
+  /** Live position while dragging: memory only. */
   onPositionChange: (position: LauncherPosition) => void;
+  /** Final position, called once when the pointer is released: persist this one. */
+  onPositionCommit: (position: LauncherPosition) => void;
   /** Bind the shared orb slot; the shell moves the single canvas in here. */
   bindOrbSlot: (el: HTMLElement | null) => void;
   /** True when WebGL is unavailable and the static fallback should draw. */
@@ -147,7 +150,11 @@ export function Launcher(props: LauncherProps): React.ReactElement {
     } catch {
       // Capture already released.
     }
-    if (!drag.moved) props.onToggle();
+    if (!drag.moved) {
+      props.onToggle();
+      return;
+    }
+    props.onPositionCommit(props.position);
   };
 
   const style = {

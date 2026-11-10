@@ -256,6 +256,23 @@ export class OrbitHub {
     }
   }
 
+  /**
+   * Close every ask row that is still `running`.
+   *
+   * An approval or question row is `running` for exactly as long as the Agent is
+   * blocked on it. When the Turn ends or the Agent errors, the reasoning-level
+   * blocking set is cleared — but the rows were left open, and `phase-inference`
+   * reads a running approval row as "waiting for the user". The snapshot then
+   * contradicted itself: `agentState: completed` next to `phase: 等待审批`, until the
+   * row fell out of the 40-row window.
+   */
+  private settleOpenAsks(record: SessionRecord, status: OrbitActivityStatus, at: number): void {
+    for (const row of record.activities) {
+      if (row.category !== 'approval' || row.status !== 'running') continue;
+      this.settleRow(record, row.id, status, at);
+    }
+  }
+
   /** Settle one row by id. Returns the settled row, or `undefined` when absent. */
   private settleRow(
     record: SessionRecord,
@@ -470,11 +487,23 @@ export class OrbitHub {
          * flight, so the match is on callId now. When the event carries no callId
          * there is nothing to attribute and the old first-match fallback stays.
          */
-        const bridgeIndex = record.activities.findIndex((row) => {
-          if (row.category !== 'approval' || row.status !== 'running') return false;
-          if (!row.id.startsWith('bridge:')) return false;
-          return callId === undefined ? true : row.callId === callId;
-        });
+        /*
+         * Only adopt when this event names the call it belongs to. The old fallback
+         * ("no callId, so take the newest bridge row") attached the durable id — and
+         * with it the tool name the user reads — to whichever ask happened to be
+         * created last, so two concurrent approvals showed each other's labels.
+         * Without a callId there is nothing to attribute: add a row instead.
+         */
+        const bridgeIndex =
+          callId === undefined
+            ? -1
+            : record.activities.findIndex(
+                (row) =>
+                  row.category === 'approval' &&
+                  row.status === 'running' &&
+                  row.id.startsWith('bridge:') &&
+                  row.callId === callId,
+              );
         const adopted = bridgeIndex >= 0 ? record.activities[bridgeIndex] : undefined;
         if (adopted !== undefined) {
           record.activities[bridgeIndex] = {
@@ -549,6 +578,8 @@ export class OrbitHub {
           this.settleRow(record, call.callId, drained, epoch);
         }
         this.closeStreamRows(record, epoch);
+        // Nobody answered these, and the Turn is over: they are not pending any more.
+        this.settleOpenAsks(record, 'cancelled', epoch);
         applyEvent(record.machine, { kind: 'turn-end', reason, at });
         this.touch(record, at);
         return;
@@ -706,6 +737,8 @@ export class OrbitHub {
       this.settleRow(record, call.callId, 'failed', epoch);
       applyEvent(record.machine, { kind: 'tool-end', id: call.callId, at });
     }
+    // An errored run cannot still be blocked on the user either.
+    this.settleOpenAsks(record, 'failed', epoch);
     this.pushActivity(record, errorActivity(epoch, this.nextId('error'), sessionId, code));
     applyEvent(record.machine, { kind: 'error', at });
     this.touch(record, at);
@@ -727,6 +760,27 @@ export class OrbitHub {
     const at = this.mono();
     const epoch = this.clock();
     for (const record of this.records.values()) {
+      /*
+       * An ask cannot outlive the run that was blocked on it.
+       *
+       * `waiting` outranks every other state, so a single ask id that never got its
+       * `approval-decided` (the bridge placeholder of an ask that was cancelled
+       * before the durable event, say) would pin the panel to 「等待审批」 with nothing
+       * left to clear it. Tool calls have had a timeout since the beginning; asks now
+       * get the same treatment, using the one fact that needs no clock: if the loop
+       * is not running, nothing is blocked.
+       */
+      if (
+        !record.machine.running &&
+        (record.machine.approvalIds.length > 0 || record.machine.questionIds.length > 0)
+      ) {
+        record.machine.approvalIds = [];
+        record.machine.questionIds = [];
+        this.settleOpenAsks(record, 'cancelled', epoch);
+        record.version += 1;
+        record.updatedAt = epoch;
+        this.queueNotify();
+      }
       const expired = record.calls.expire(at, this.callTimeoutMs, 'cancelled');
       if (expired.length > 0) {
         for (const call of expired) {

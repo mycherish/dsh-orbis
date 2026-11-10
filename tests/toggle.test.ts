@@ -54,6 +54,8 @@ import {
 
 class FakeStorage {
   private readonly map = new Map<string, string>();
+  /** Every `setItem`, including the probe pair `storage()` performs. */
+  writes = 0;
 
   get length(): number {
     return this.map.size;
@@ -77,6 +79,7 @@ class FakeStorage {
   }
 
   setItem(key: string, value: string): void {
+    this.writes += 1;
     this.map.set(key, String(value));
   }
 }
@@ -301,5 +304,31 @@ describe('hudCollapsed persistence', () => {
     }
     fake.setItem(HUD_KEY, 'true');
     expect(loadHudCollapsed()).toBe(true);
+  });
+});
+
+/*
+ * B4 (2.1.11): a drag must not write to localStorage on every pointermove.
+ *
+ * The launcher used to call `setPosition` from `pointermove`, and `setPosition` writes
+ * JSON — after probing the store with a set/remove pair — so a drag performed 60–120
+ * synchronous storage operations per second. The position is now kept in memory while
+ * the pointer moves and persisted once, on release.
+ */
+describe('B4: position updates during a drag do not touch storage', () => {
+  it('setPositionLive only moves the ball in memory', () => {
+    const before = fake.writes;
+    for (let index = 0; index < 30; index += 1) {
+      useOrbitStore.getState().setPositionLive({ right: 40 + index, bottom: 100 });
+    }
+    expect(useOrbitStore.getState().position).toEqual({ right: 69, bottom: 100 });
+    expect(fake.writes, 'thirty pointermoves, zero writes').toBe(before);
+  });
+
+  it('setPosition persists, once, on release', () => {
+    const before = fake.writes;
+    useOrbitStore.getState().setPosition({ right: 70, bottom: 120 });
+    expect(fake.writes).toBeGreaterThan(before);
+    expect(loadPosition()).toEqual({ right: 70, bottom: 120 });
   });
 });

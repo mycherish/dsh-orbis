@@ -197,6 +197,7 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
   const setOpen = useOrbitStore((state) => state.setOpen);
   const setVisible = useOrbitStore((state) => state.setVisible);
   const setPosition = useOrbitStore((state) => state.setPosition);
+  const setPositionLive = useOrbitStore((state) => state.setPositionLive);
   const setHudCollapsed = useOrbitStore((state) => state.setHudCollapsed);
   const setHudPinned = useOrbitStore((state) => state.setHudPinned);
   const patchSettings = useOrbitStore((state) => state.patchSettings);
@@ -214,6 +215,17 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
   const sessionRef = React.useRef<string | undefined>(sessionId);
   sessionRef.current = sessionId;
 
+  /**
+   * The stream the current transport was opened for.
+   *
+   * `startTransport` opens its own connection, so the "restart on Session change"
+   * effect below used to fire on mount as well — close, reopen — and every mount
+   * cost two `EventSource`s and two `connecting` transitions. Recording which
+   * Session the live transport was opened for makes the restart effect idempotent
+   * on mount and only act on a real switch.
+   */
+  const streamedForRef = React.useRef<string | undefined>(sessionId);
+
   React.useEffect(() => {
     if (!enabled) return undefined;
     const transport = startTransport({
@@ -222,15 +234,18 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
       onConnection: setConnection,
     });
     transportRef.current = transport;
+    streamedForRef.current = sessionRef.current;
     return () => {
       transport.stop();
       transportRef.current = null;
     };
   }, [enabled, setConnection, setSnapshot]);
 
-  // Restart the stream when the followed Session changes.
+  // Restart the stream when the followed Session changes — and only then.
   React.useEffect(() => {
     if (!enabled) return;
+    if (streamedForRef.current === sessionId) return;
+    streamedForRef.current = sessionId;
     transportRef.current?.restart();
   }, [enabled, sessionId]);
 
@@ -365,14 +380,23 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
    * The observer also covers box changes that never touch the window (a sidebar
    * collapsing, a host theme change).
    */
+  /*
+   * `orb.resize` — not `orb` — belongs in the dependencies. `useOrbOwner` returns a
+   * fresh object literal on every render, and the shell re-renders on every SSE
+   * frame and on the one-second fps sample; with `orb` in the list this observer
+   * was torn down and rebuilt several times a second, and each rebuild ran a
+   * `resize()` that measures layout synchronously. `resize` itself is a `useCallback`
+   * keyed on the owner, so it is stable for as long as the renderer is.
+   */
+  const orbResize = orb.resize;
   React.useEffect(() => {
     if (orbSlot === null || !enabled) return undefined;
-    orb.resize();
+    orbResize();
     if (typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver(() => orb.resize());
+    const observer = new ResizeObserver(() => orbResize());
     observer.observe(orbSlot);
     return () => observer.disconnect();
-  }, [orbSlot, orb, enabled]);
+  }, [orbSlot, orbResize, enabled]);
 
   React.useEffect(() => {
     if (!enabled) {
@@ -585,7 +609,8 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
           orbUnavailable={orbUnavailable}
           onToggle={activateOrb}
           onHide={() => setVisible(false)}
-          onPositionChange={setPosition}
+          onPositionChange={setPositionLive}
+          onPositionCommit={setPosition}
           bindOrbSlot={bindLauncherSlot}
         />
       ) : null}

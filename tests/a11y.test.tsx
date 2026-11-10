@@ -41,14 +41,21 @@ const { act } = React;
 let root: Root | undefined;
 let container: HTMLDivElement | undefined;
 
+/** Counts constructions: one mount must open exactly one stream (B3, 2.1.11). */
+let eventSourceCount = 0;
+
 class SilentEventSource {
   onopen: (() => void) | null = null;
   onmessage: ((event: MessageEvent<string>) => void) | null = null;
   onerror: (() => void) | null = null;
+  constructor() {
+    eventSourceCount += 1;
+  }
   close(): void {}
 }
 
 beforeEach(() => {
+  eventSourceCount = 0;
   vi.stubGlobal('EventSource', SilentEventSource);
   vi.stubGlobal(
     'fetch',
@@ -204,5 +211,26 @@ describe('showWorkspace off must not strand the user', () => {
     act(() => entry?.click());
 
     expect(container?.querySelector('[data-orbis-surface="workspace"]')).not.toBeNull();
+  });
+});
+
+/*
+ * B3 (2.1.11): one mount, one stream.
+ *
+ * `startTransport` opens its own `EventSource`, and the "restart when the Session
+ * changes" effect also ran on mount — so every mount closed the fresh connection
+ * and opened a second one, with a `connecting → reconnecting → open` flap in
+ * between. The restart is now keyed on the Session the live transport was opened
+ * for, so it is a no-op until the Session actually changes.
+ */
+describe('B3: the transport is opened once per mount', () => {
+  it('constructs exactly one EventSource on mount', () => {
+    expect(eventSourceCount).toBe(1);
+  });
+
+  it('stays at one when disabling and re-enabling the master switch', () => {
+    act(() => useOrbitStore.getState().patchSettings({ enabled: false }));
+    act(() => useOrbitStore.getState().patchSettings({ enabled: true }));
+    expect(eventSourceCount).toBe(2);
   });
 });

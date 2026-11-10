@@ -306,6 +306,14 @@ export function registerOrbitRoutes(hub: OrbitHub, webServer: WebServerLike): Ro
               stalled: 0,
               send(text: string, version?: number): boolean {
                 if (write(text)) return true;
+                /*
+                 * A heartbeat must not take the slot a dropped snapshot is waiting in.
+                 * It carries no version, so overwriting the pending frame lost the one
+                 * thing worth resending: the peer would drain the queue, receive a
+                 * heartbeat, and keep rendering whatever it had — with nothing
+                 * scheduled to bring it up to date until the next unrelated change.
+                 */
+                if (version === undefined && pendingFrame !== null) return false;
                 pendingFrame = { text, ...(version === undefined ? {} : { version }) };
                 return false;
               },

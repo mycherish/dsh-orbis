@@ -510,3 +510,59 @@ describe('auto-follow subscriptions', () => {
     await reader.cancel();
   });
 });
+
+/*
+ * T2 (2.1.11): a heartbeat must not take the slot a dropped snapshot is waiting in.
+ *
+ * Backpressure drops the newest snapshot into a single-slot `pendingFrame`, meant to
+ * be resent when the peer catches up. Heartbeats go through the same `send`, carry no
+ * version, and used to overwrite that slot — so a tab that froze long enough to miss
+ * a state change came back, drained the queue, received a heartbeat, and stayed on
+ * the old state until some unrelated event happened.
+ */
+describe('T2: backpressure keeps the newest snapshot', () => {
+  it('resends the snapshot, not the heartbeat that arrived after it', async () => {
+    vi.useFakeTimers();
+    const hub = new OrbitHub({ now: () => T0 });
+    const { routes, webServer } = fakeServer();
+    const local = registerOrbitRoutes(hub, webServer);
+    try {
+      const events = routes.find((route) => route.path === EVENTS_ROUTE);
+      const response = await events?.resource(pageRequest(`${EVENTS_ROUTE}?sessionId=s1`));
+      const reader = response?.body?.getReader();
+      expect(reader).toBeDefined();
+      if (reader === undefined) return;
+
+      // Enough changes to overflow the bounded queue while nobody reads.
+      for (let index = 0; index < 12; index += 1) {
+        hub.handleSessionEvent('s1', { type: 'turn/start', time: T0 + index, data: { turn: index + 1 } });
+        await Promise.resolve();
+        await Promise.resolve();
+      }
+      const newest = hub.snapshot('s1').version;
+
+      // A heartbeat fires while the peer is still stalled: it must not win the slot.
+      vi.advanceTimersByTime(HEARTBEAT_MS);
+      vi.useRealTimers();
+
+      let lastSnapshotVersion = -1;
+      for (let guard = 0; guard < 40; guard += 1) {
+        const next = await Promise.race([
+          reader.read(),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 20)),
+        ]);
+        if (next === null || next.done === true) break;
+        const text = new TextDecoder().decode(next.value);
+        const line = text.split('\n').find((candidate) => candidate.startsWith('data: '));
+        if (line === undefined) continue;
+        const frame = JSON.parse(line.slice('data: '.length)) as OrbitFrame;
+        if (frame.type === 'snapshot') lastSnapshotVersion = frame.snapshot.version;
+      }
+
+      expect(lastSnapshotVersion, 'the peer must end up on the newest snapshot').toBe(newest);
+      await reader.cancel();
+    } finally {
+      local.dispose();
+    }
+  });
+});

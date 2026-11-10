@@ -281,6 +281,8 @@ export interface OrbitStoreState {
   setOpen: (open: boolean) => void;
   toggleOpen: () => void;
   setVisible: (visible: boolean) => void;
+  /** Move the ball without touching storage; `setPosition` persists. */
+  setPositionLive: (position: LauncherPosition) => void;
   setPosition: (position: LauncherPosition) => void;
   setFps: (fps: number) => void;
   setHudCollapsed: (collapsed: boolean) => void;
@@ -353,6 +355,14 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
   setOpen: (open) => set({ open }),
   toggleOpen: () => set({ open: !get().open }),
   setVisible: (visible) => set({ visible }),
+  /*
+   * Two entry points on purpose. A drag emits a position on every pointermove —
+   * 60 to 120 times a second — and `savePosition` writes JSON to localStorage, which
+   * is synchronous and also probes the store with a set/remove pair first. Writing
+   * once when the pointer is released is the difference between a smooth drag and a
+   * stuttering one; nothing reads the persisted value until the next page load.
+   */
+  setPositionLive: (position) => set({ position }),
   setPosition: (position) => {
     savePosition(position);
     set({ position });

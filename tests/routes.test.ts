@@ -42,6 +42,21 @@ async function readFrame(reader: ReadableStreamDefaultReader<Uint8Array>): Promi
   throw new Error('no data frame received');
 }
 
+
+/**
+ * A request shaped the way the carrier hands one to a resource.
+ *
+ * `WebServer.serveResource` builds the URL against a placeholder origin
+ * (`http://x`) and leaves the real authority in the `Host` header, so a resource
+ * can never read the authority off the URL. Every request that is expected to be
+ * answered has to look like that — including the `Host` header, which
+ * `foreignRequestRefusal` needs in order to tell a page request from a bare client.
+ */
+const PAGE_AUTHORITY = '127.0.0.1:4123';
+function pageRequest(path: string, headers: Record<string, string> = {}): Request {
+  return new Request(`http://x${path}`, { headers: { host: PAGE_AUTHORITY, ...headers } });
+}
+
 describe('read-only routes', () => {
   let handle: { dispose(): void; clients(): number } | undefined;
 
@@ -70,7 +85,7 @@ describe('read-only routes', () => {
     const state = routes.find((route) => route.path === STATE_ROUTE);
     expect(state).toBeDefined();
 
-    const response = await state?.resource(new Request(`http://local${STATE_ROUTE}?sessionId=beta`));
+    const response = await state?.resource(pageRequest(`${STATE_ROUTE}?sessionId=beta`));
     expect(response?.status).toBe(200);
     expect(response?.headers.get('content-type')).toContain('application/json');
     expect(response?.headers.get('cache-control')).toBe('no-store');
@@ -90,7 +105,7 @@ describe('read-only routes', () => {
     handle = registerOrbitRoutes(hub, webServer);
 
     const events = routes.find((route) => route.path === EVENTS_ROUTE);
-    const response = await events?.resource(new Request(`http://local${EVENTS_ROUTE}?sessionId=s1`));
+    const response = await events?.resource(pageRequest(`${EVENTS_ROUTE}?sessionId=s1`));
     expect(response?.headers.get('content-type')).toContain('text/event-stream');
     expect(response?.headers.get('cache-control')).toContain('no-store');
     expect(response?.body).not.toBeNull();
@@ -142,7 +157,7 @@ describe('read-only routes', () => {
     handle = local;
 
     const events = routes.find((route) => route.path === EVENTS_ROUTE);
-    const response = await events?.resource(new Request(`http://local${EVENTS_ROUTE}?sessionId=s1`));
+    const response = await events?.resource(pageRequest(`${EVENTS_ROUTE}?sessionId=s1`));
     const reader = response?.body?.getReader();
     expect(reader).toBeDefined();
     if (reader === undefined) return;
@@ -193,7 +208,7 @@ describe('read-only routes', () => {
     handle = local;
 
     const events = routes.find((route) => route.path === EVENTS_ROUTE);
-    const response = await events?.resource(new Request(`http://local${EVENTS_ROUTE}?sessionId=s1`));
+    const response = await events?.resource(pageRequest(`${EVENTS_ROUTE}?sessionId=s1`));
     expect(local.clients()).toBe(1);
     void response;
 
@@ -216,7 +231,7 @@ describe('read-only routes', () => {
     const local = registerOrbitRoutes(hub, webServer);
 
     const events = routes.find((route) => route.path === EVENTS_ROUTE);
-    const response = await events?.resource(new Request(`http://local${EVENTS_ROUTE}`));
+    const response = await events?.resource(pageRequest(`${EVENTS_ROUTE}`));
     const reader = response?.body?.getReader();
     expect(local.clients()).toBe(1);
 
@@ -231,5 +246,85 @@ describe('read-only routes', () => {
       closed = done;
     }
     expect(closed).toBe(true);
+  });
+});
+
+describe('carrier contract', () => {
+  it('registers resources, the shape 0.2.2-rc.1 dispatches', () => {
+    /*
+     * `WebServer` picks a responder in this order:
+     *   typeof responder === 'function'  → responder(req, res)
+     *   'resource' in responder          → serveResource(req, res, url, resource)
+     *   otherwise                        → responder.handler(req, res)
+     *
+     * The third branch is all 0.2.1-rc.x has (no `resource` concept at all), so a
+     * `handler`-only route is a TypeError there and a silent no-op here. A
+     * hand-written mock cannot catch that unless it copies this order — this test
+     * pins the shape, and `package.json -> engines.dsh` pins the floor that has
+     * the `resource` branch.
+     */
+    const hub = new OrbitHub({ now: () => T0 });
+    const { routes, webServer } = fakeServer();
+    const local = registerOrbitRoutes(hub, webServer);
+
+    try {
+      expect(routes).toHaveLength(2);
+      for (const route of routes) {
+        expect(typeof route.resource).toBe('function');
+        expect('handler' in route).toBe(false);
+      }
+    } finally {
+      local.dispose();
+    }
+  });
+});
+
+describe('foreign request containment', () => {
+  let local: { dispose(): void; clients(): number } | undefined;
+
+  afterEach(() => {
+    local?.dispose();
+    local = undefined;
+  });
+
+  const answer = async (headers: Record<string, string>): Promise<Response | undefined> => {
+    const hub = new OrbitHub({ now: () => T0 });
+    const { routes, webServer } = fakeServer();
+    local = registerOrbitRoutes(hub, webServer);
+    const state = routes.find((route) => route.path === STATE_ROUTE);
+    return state?.resource(
+      new Request(`http://x${STATE_ROUTE}`, { headers: { host: PAGE_AUTHORITY, ...headers } }),
+    );
+  };
+
+  it('answers the GUI that is served on loopback', async () => {
+    const response = await answer({});
+    expect(response?.status).toBe(200);
+  });
+
+  it('refuses a bare client that reaches a non-loopback authority', async () => {
+    // The shape of a plain curl to <lan-ip>:<port>/api/orbis/state: no fetch
+    // metadata at all, and an authority that says the listener is exposed. Every
+    // other surface in the process answers 401 to exactly this request.
+    const response = await answer({ host: '10.0.0.7:4123' });
+    expect(response?.status).toBe(403);
+  });
+
+  it('refuses cross-site pages', async () => {
+    expect((await answer({ 'sec-fetch-site': 'cross-site' }))?.status).toBe(403);
+    expect((await answer({ 'sec-fetch-site': 'same-site' }))?.status).toBe(403);
+  });
+
+  it('refuses an Origin that names another authority', async () => {
+    expect((await answer({ origin: 'http://evil.test' }))?.status).toBe(403);
+    const matching = await answer({ origin: `http://${PAGE_AUTHORITY}`, 'sec-fetch-site': 'same-origin' });
+    expect(matching?.status).toBe(200);
+  });
+
+  it('still answers a GUI the operator chose to serve on a LAN address', async () => {
+    // Same-origin means the page itself got past the host's 401; refusing that
+    // would break every deliberately exposed deployment for no gain.
+    const response = await answer({ host: '10.0.0.7:4123', 'sec-fetch-site': 'same-origin' });
+    expect(response?.status).toBe(200);
   });
 });

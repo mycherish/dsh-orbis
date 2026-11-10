@@ -207,6 +207,14 @@ pnpm verify         # build + typecheck + test
 - **构建**：`scripts/build.mjs` 用 esbuild 直接产出两个产物；`client.js` 由打包后的 CJS 体包进 `window.__ModuleLoader__.load({ id, factory(require) })` 信封，`react` 保持 external（由页面模块表提供），`three` 与 `zustand` 打进包内（离线可用，不依赖 CDN）。
 - 未使用 Vite：本插件只需要两个入口的单文件产物，esbuild 直接完成即可，少一层配置。
 
+### 环境要求
+
+| 项 | 要求 | 原因 |
+|---|---|---|
+| DSH | **0.2.2-rc.1 及以上**（`<0.3.0`） | 插件的两条路由注册成 `{ resource }`，由 carrier 的 `WebServer.serveResource` 分发（它负责造 `Request`、取 `Response`、并在 socket 断开时 abort 请求信号）。这个分支 0.2.2-rc.1 才有；`0.2.1-rc.x` 只认 `handler(req, res)`，装上去路由一个都答不上来。该下限写在 `package.json -> engines.dsh`，由 `tests/release-contract.test.ts` 守住 |
+
+**只读路由的暴露面**：`/api/orbis/state` 与 `/api/orbis/events` 本身不带鉴权（宿主只在 `serveResource` 里做 GET/HEAD 过滤）。所以它们额外做了一层收容检查：跨站页面、`Origin` 与 `Host` 不一致的请求一律 403；没有浏览器 fetch 元信息的普通客户端只在 loopback 地址上被应答。桌面端与「同源打开的 GUI」正常；把 DSH 监听到局域网后，**直接 curl 该路由**会被拒。这不是鉴权 —— 真正的宿主 cookie 校验需要插件拿不到的密钥，见 README 末尾的待办。
+
 ### 安装 / 卸载
 
 三选一：

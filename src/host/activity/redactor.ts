@@ -137,13 +137,27 @@ export function targetFromArguments(rawArguments: string): RedactedTarget | unde
 export const MAX_TITLE = 80;
 
 /**
- * Absolute, home-relative and drive-rooted path tokens inside free text.
+ * Absolute, home-relative, drive-rooted and UNC path tokens inside free text.
  *
- * A leading `/` only starts a match when an ASCII path character follows it, so
- * prose such as `读/写` or `and/or` is left alone; relative paths are not
- * touched either, because they say nothing about where the user keeps files.
+ * A leading `/` only starts a match when a path character follows it, so prose
+ * such as `读/写` or `and/or` is left alone; relative paths are not touched
+ * either, because they say nothing about where the user keeps files.
+ *
+ * "Path character" has to mean Unicode, not ASCII: `redactPath` already reduced
+ * `/数据/客户/名单.csv` to `名单.csv` when it arrived as a structured target, but
+ * the same path inside a plan line or a Session title matched nothing here and
+ * travelled to the browser verbatim — a direct contradiction of the promise this
+ * module exists to keep. `\p{L}\p{N}` covers CJK, Cyrillic, Greek and the rest.
+ * The `≥2 segments` rule below is what still keeps `读/写` (one segment after the
+ * slash) and `and/or` out of the rewrite, so widening the character class does
+ * not start eating prose.
+ *
+ * `\\\\` is the UNC form (`\\server\share\file`), which the drive-rooted branch
+ * never covered: its first segment is a host name, so it cannot be expressed by
+ * the `[A-Za-z]:` alternative.
  */
-const ABSOLUTE_PATH_TOKEN = /(?:[A-Za-z]:[\\/]|~[\\/]|\/)[A-Za-z0-9._@+-][^\s"'`<>|,;()[\]{}]*/g;
+const ABSOLUTE_PATH_TOKEN =
+  /(?:[A-Za-z]:[\\/]|\\\\[^\\/\s]+[\\/]|~[\\/]|(?<![\p{L}\p{N}._@+~-])\/)[\p{L}\p{N}._@+-][^\s"'`<>|,;()\[\]{}]*/gu;
 
 /**
  * Reduce every absolute-looking path inside Agent-authored prose to its safe

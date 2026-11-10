@@ -324,6 +324,10 @@ export function applyEvent(input: MachineState, event: OrbitMachineEvent): Machi
 /**
  * True when a tick could still change the published state: a hold is running
  * out, or the Agent is running and must cross a silence boundary.
+ *
+ * Diagnostics and tests only. `OrbitHub.tick()` must not use this as a skip
+ * guard: the tick where a hold *expires* is exactly the one it answers `false`
+ * to, and that is the tick that has to publish the fallback to the next state.
  */
 export function hasPendingHold(state: MachineState, at: number): boolean {
   if (state.errorUntil > at || state.completedUntil > at || state.interruptedUntil > at) return true;

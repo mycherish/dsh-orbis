@@ -29,6 +29,7 @@ const read = (file: string) => readFileSync(join(root, file), 'utf8');
 const pkg = JSON.parse(read('package.json')) as {
   name: string;
   version: string;
+  engines?: { node?: string; dsh?: string };
   private?: boolean;
   license?: string;
   exports: Record<string, string>;
@@ -88,6 +89,21 @@ describe('manifest', () => {
     expect(pkg.dsh.client.inject).toContain('@deepseek-ai/dsh-client-locale');
     expect(pkg.dsh.client.inject).toContain('@deepseek-ai/dsh-client-ui-renderer');
     expect(pkg.dsh.client.inject).toHaveLength(2);
+  });
+});
+
+describe('host floor', () => {
+  it('declares the floor whose carrier supports resource routes', () => {
+    /*
+     * Both routes are `{ resource }` routes. `WebServer.serveResource` — the branch
+     * that builds a Fetch Request, takes the Response, and aborts it when the socket
+     * closes — first shipped in 0.2.2-rc.1; 0.2.1-rc.x dispatches only
+     * `handler(req, res)` and would call a method these routes do not have. This
+     * assertion exists because the first published manifest claimed
+     * ">=0.2.0-rc.1", i.e. it advertised two host versions on which the routes
+     * cannot answer at all.
+     */
+    expect(pkg.engines?.dsh).toBe('>=0.2.2-rc.1 <0.3.0-0');
   });
 });
 

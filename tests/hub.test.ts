@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { OrbitHub, type SessionEventLike } from '../src/host/hub';
-import { MAX_ACTIVITY_ROWS } from '../src/shared/protocol';
+import { COMPLETED_HOLD_MS, ERROR_HOLD_MS, MAX_ACTIVITY_ROWS } from '../src/shared/protocol';
 import { TASK_TITLE_FALLBACK } from '../src/shared/task-context-types';
 
 const T0 = 1_700_000_000_000;
@@ -102,6 +102,52 @@ describe('hub fold', () => {
     now = T0 + 9000;
     hub.tick();
     expect(hub.snapshot('s1').agentState).toBe('idle');
+  });
+
+  it('bumps the version when a completed hold expires, so subscribers leave the hold', () => {
+    let now = T0;
+    const hub = new OrbitHub({ now: () => now });
+    hub.handleStatus('s1', 'running');
+    hub.handleTurnStopping('s1');
+    hub.handleStatus('s1', 'idle');
+    expect(hub.snapshot('s1').agentState).toBe('completed');
+    const atHold = hub.snapshot('s1').version;
+
+    /*
+     * The tick that expires a hold used to be exactly the one the `hasPendingHold`
+     * fast path skipped. `snapshot()` recomputes on read, so the server said
+     * `idle` while the stored record stayed on `completed`, its version never
+     * moved and no subscriber was woken: every SSE client sat on 「已完成」 until
+     * some unrelated event happened to redraw it.
+     */
+    now = T0 + COMPLETED_HOLD_MS + 1;
+    hub.tick();
+
+    expect(hub.snapshot('s1').agentState).toBe('idle');
+    expect(hub.snapshot('s1').version).toBeGreaterThan(atHold);
+  });
+
+  it('drops in-flight tools from the state machine when the turn errors', () => {
+    let now = T0;
+    const hub = new OrbitHub({ now: () => now });
+    hub.handleStatus('s1', 'running');
+    hub.handleSessionEvent('s1', toolCall(1, 'c1', 'bash', '{"command":"ls"}', T0 + 10));
+    expect(hub.snapshot('s1').activeTools).toBe(1);
+
+    hub.handleError('s1', 'QUOTA');
+    expect(hub.snapshot('s1').agentState).toBe('error');
+    /*
+     * Draining the call registry was not enough: the machine kept `c1` open, so
+     * once the error hold expired `computeState` fell through to
+     * `openTools.length > 0` and the panel reported `executing` with
+     * `activeTools: 1` for a turn that had already failed.
+     */
+    expect(hub.snapshot('s1').activeTools).toBe(0);
+
+    now = T0 + ERROR_HOLD_MS + 1;
+    hub.tick();
+    expect(hub.snapshot('s1').agentState).not.toBe('executing');
+    expect(hub.snapshot('s1').activeTools).toBe(0);
   });
 
   it('records approvals and resolves them when the gated tool starts', () => {

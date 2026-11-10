@@ -340,3 +340,29 @@ describe('activity rows', () => {
     expect(sensitive.safeTarget).toBe(SENSITIVE_TARGET_LABEL);
   });
 });
+
+describe('inline path redaction across path dialects', () => {
+  it('reduces Unicode absolute paths to their basename', () => {
+    // `redactPath` always handled these as structured targets; the free-text
+    // tokenizer used an ASCII-only first-character class, so the same path inside
+    // a plan line or a Session title reached the browser verbatim.
+    expect(redactInlinePaths('/数据/客户/名单.csv')).toBe('名单.csv');
+    expect(redactInlinePaths('cat /数据/客户/名单.csv then stop')).toBe('cat 名单.csv then stop');
+    expect(redactInlinePaths('/Документы/клиенты/список.csv')).toBe('список.csv');
+  });
+
+  it('covers the UNC dialect the drive-rooted branch never matched', () => {
+    expect(redactInlinePaths('\\\\server\\share\\a.txt')).toBe('a.txt');
+  });
+
+  it('still leaves prose that merely contains a slash alone', () => {
+    for (const text of ['读/写', 'and/or', 'TCP/IP', 'see docs/a.md']) {
+      expect(redactInlinePaths(text)).toBe(text);
+    }
+  });
+
+  it('masks a secret-bearing basename whatever the directory dialect', () => {
+    expect(redactInlinePaths('/秘钥/server.key')).toBe(SENSITIVE_TARGET_LABEL);
+    expect(redactInlinePaths('\\\\vault\\keys\\id_rsa')).toBe(SENSITIVE_TARGET_LABEL);
+  });
+});

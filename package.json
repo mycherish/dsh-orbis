@@ -1,6 +1,6 @@
 {
   "name": "dsh-orbis",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Caelum Orbis — an always-on 3D agent status HUD and execution visualizer for DeepSeek Harness.",
   "license": "MIT",
   "author": {
@@ -10,7 +10,7 @@
   "type": "module",
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
-    "dsh": ">=0.2.0-rc.1 <0.3.0-0"
+    "dsh": ">=0.2.2-rc.1 <0.3.0-0"
   },
   "keywords": [
     "dsh",

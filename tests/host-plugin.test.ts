@@ -3,6 +3,21 @@ import { apply, describe as describePlugin } from '../src/host/index';
 
 const T0 = 1_700_000_000_000;
 
+/**
+ * A request shaped the way the carrier hands one to a resource.
+ *
+ * `WebServer.serveResource` builds the URL against a placeholder origin
+ * (`http://x`) and leaves the real authority in the `Host` header, so a resource
+ * can never read the authority off the URL. Every request that is expected to be
+ * answered has to look like that — including the `Host` header, which
+ * `foreignRequestRefusal` needs in order to tell a page request from a bare client.
+ */
+const PAGE_AUTHORITY = '127.0.0.1:4123';
+function pageRequest(path: string, headers: Record<string, string> = {}): Request {
+  return new Request(`http://x${path}`, { headers: { host: PAGE_AUTHORITY, ...headers } });
+}
+
+
 interface FakeRoute {
   kind: string;
   path: string;
@@ -145,7 +160,7 @@ describe('host plugin wiring', () => {
       const stateRoute = host.routes.find((route) => route.path === '/api/orbis/state');
       expect(stateRoute).toBeDefined();
       const read = async (): Promise<Record<string, unknown>> => {
-        const response = await stateRoute?.resource(new Request(`http://local/api/orbis/state?sessionId=s1`));
+        const response = await stateRoute?.resource(pageRequest('/api/orbis/state?sessionId=s1'));
         return (await response?.json()) as Record<string, unknown>;
       };
 
@@ -199,7 +214,7 @@ describe('host plugin wiring', () => {
       });
       const stateRoute = host.routes.find((route) => route.path === '/api/orbis/state');
       const body = (await (await stateRoute?.resource(
-        new Request('http://local/api/orbis/state?sessionId=s1'),
+        pageRequest('/api/orbis/state?sessionId=s1'),
       ))?.json()) as Record<string, unknown>;
       expect((body.task as Record<string, unknown>).taskTitle).toBe('修复重复悬浮球');
     } finally {
@@ -224,7 +239,7 @@ describe('host plugin wiring', () => {
       });
       const stateRoute = host.routes.find((route) => route.path === '/api/orbis/state');
       const body = (await (await stateRoute?.resource(
-        new Request('http://local/api/orbis/state?sessionId=s1'),
+        pageRequest('/api/orbis/state?sessionId=s1'),
       ))?.json()) as Record<string, unknown>;
       expect((body.task as Record<string, unknown>).taskTitle).toBe('新标题');
     } finally {
@@ -265,7 +280,7 @@ describe('host plugin wiring', () => {
       const stateRoute = host.routes.find((route) => route.path === '/api/orbis/state');
       expect(stateRoute).toBeDefined();
       const read = async (): Promise<Record<string, unknown>> =>
-        (await (await stateRoute!.resource(new Request('http://local/api/orbis/state?sessionId=s1'))).json()) as Record<string, unknown>;
+        (await (await stateRoute!.resource(pageRequest('/api/orbis/state?sessionId=s1'))).json()) as Record<string, unknown>;
 
       onStatus({ agent: { id: 's1' }, status: 'running' });
       onEvent({ id: 's1' }, {

@@ -28,7 +28,6 @@ import {
   applyEvent,
   computeState,
   createMachine,
-  hasPendingHold,
   quietLevelFor,
   silenceOf,
   type MachineState,
@@ -657,8 +656,18 @@ export class OrbitHub {
     const record = this.ensure(sessionId);
     const epoch = this.clock();
     const at = this.mono();
+    /*
+     * Every in-flight tool is dead, and the state machine has to be told.
+     * Draining the registry alone left `machine.openTools` still holding those
+     * ids, so the moment the error hold expired `computeState` fell through to
+     * `openTools.length > 0` and the panel went back to `executing` with a
+     * non-zero `activeTools` — for a turn that had already failed. The expiry
+     * path in `tick()` has always emitted one `tool-end` per drained call; this
+     * is the same bookkeeping, for the same reason.
+     */
     for (const call of record.calls.drain('failed')) {
       this.settleRow(record, call.callId, 'failed', epoch);
+      applyEvent(record.machine, { kind: 'tool-end', id: call.callId, at });
     }
     this.pushActivity(record, errorActivity(epoch, this.nextId('error'), sessionId, code));
     applyEvent(record.machine, { kind: 'error', at });
@@ -692,7 +701,19 @@ export class OrbitHub {
         this.queueNotify();
         continue;
       }
-      if (!hasPendingHold(record.machine, at)) continue;
+      /*
+       * Deliberately no `hasPendingHold` fast path here.
+       *
+       * That predicate answers "could a tick still change something", and it
+       * returns `false` in exactly the tick where a hold expires — which is the
+       * one tick where the stored `completed` / `error` / `interrupted` label
+       * has to fall back to `idle`. Skipping it there left the record parked on
+       * the held label with no version bump and no notification, while
+       * `snapshot()` recomputed `idle` on read: the server reported idle and
+       * every SSE client stayed on 「已完成」 until some unrelated event happened.
+       * Recomputation is a handful of comparisons, so the fast path bought
+       * nothing but that blind spot.
+       */
       const next = computeState(record.machine, at);
       const level = quietLevelFor(record.machine, at);
       if (next === record.machine.agentState && level === record.quietLevel) continue;

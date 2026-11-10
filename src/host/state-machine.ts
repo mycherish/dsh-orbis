@@ -11,7 +11,7 @@
  *  3. `running` alone never means "a Turn is executing": DSH reports the loop
  *     as running before the first step and during wake-ups, so a running Agent
  *     with no step yet is `starting`, and a running Agent with no visible
- *     progress for ten seconds is `quiet`.
+ *     progress for thirty seconds (`SILENCE_LEVEL1_MS`) is `quiet`.
  *  4. Every clock value here is monotonic (`at`), never wall-clock, so a system
  *     time jump cannot fabricate or erase silence.
  */
@@ -341,6 +341,7 @@ export function hasPendingHold(state: MachineState, at: number): boolean {
   if (state.errorUntil > at || state.completedUntil > at || state.interruptedUntil > at) return true;
   if (state.approvalIds.length > 0 || state.questionIds.length > 0) return true;
   if (!state.running) return false;
-  // `quiet` is reached at ten seconds and then only buckets change; both matter.
+  // `quiet` starts at thirty seconds; after that only the bucket index changes,
+  // and both are part of what a tick has to publish.
   return state.agentState !== 'quiet' || silenceLevelOf(silenceOf(state, at)) < 3;
 }

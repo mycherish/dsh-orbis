@@ -96,3 +96,33 @@ describe('monotonic clock', () => {
     expect(second).toBeGreaterThanOrEqual(first);
   });
 });
+
+describe('label copy', () => {
+  it('never leaves a space between two Chinese characters', () => {
+    /*
+     * `humanDuration` returns `45 秒` — the space belongs between the digits and
+     * the unit, not after it. Every template below that used to add its own
+     * separator produced `已连续 45 秒 没有收到新的活动事件。`: one space too many,
+     * sitting between 秒 and 没. It is a single character of noise in text the user
+     * reads in the HUD, and in the sentence the README quotes.
+     */
+    const situations: Array<Partial<SilenceInput>> = [
+      {},
+      { activeTools: 1 },
+      { responding: true },
+      { waitingApproval: true },
+      { turnOpen: false },
+    ];
+    for (const overrides of situations) {
+      for (const ms of [31_000, 45_000, 90_000, 200_000]) {
+        const label = silenceLabel(input({ ...overrides, ms }));
+        expect(label, label).not.toMatch(/[\u4e00-\u9fff]\s+[\u4e00-\u9fff]/);
+        expect(label.trim(), label).toBe(label);
+      }
+    }
+  });
+
+  it('quotes the level-1 sentence the README shows', () => {
+    expect(silenceLabel(input({ ms: 45_000 }))).toBe('已连续 45 秒没有收到新的活动事件。');
+  });
+});

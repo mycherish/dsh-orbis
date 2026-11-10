@@ -76,13 +76,13 @@ export function silenceLabel(input: SilenceInput): string {
   if (input.waitingApproval) return `已等待${blockNoun} ${elapsed}，任务暂停在此处。`;
   if (input.activeTools > 0) {
     return level >= 2
-      ? `工具仍在执行，已 ${elapsed} 没有新的输出。`
-      : `工具执行中，已 ${elapsed} 没有新的输出。`;
+      ? `工具仍在执行，已 ${elapsed}没有新的输出。`
+      : `工具执行中，已 ${elapsed}没有新的输出。`;
   }
-  if (input.responding) return `模型仍在输出，已 ${elapsed} 没有新的活动事件。`;
-  if (level >= 3) return `已超过 ${elapsed} 没有收到任何活动，建议检查任务状态。`;
-  if (level === 2) return `已 ${elapsed} 没有新的活动更新。`;
-  return `已连续 ${elapsed} 没有收到新的活动事件。`;
+  if (input.responding) return `模型仍在输出，已 ${elapsed}没有新的活动事件。`;
+  if (level >= 3) return `已超过 ${elapsed}没有收到任何活动，建议检查任务状态。`;
+  if (level === 2) return `已 ${elapsed}没有新的活动更新。`;
+  return `已连续 ${elapsed}没有收到新的活动事件。`;
 }
 
 /** Build the wire object for one observation. */

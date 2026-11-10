@@ -107,6 +107,28 @@ describe('host floor', () => {
   });
 });
 
+describe('README', () => {
+  it('only names source paths that exist', () => {
+    /*
+     * The source table drifted into listing `src/host/quiet.ts`,
+     * `categories.ts` and `normalize.ts` — three files that had been renamed or
+     * never existed — and it shipped that way to the npm page. A reader cannot
+     * check the README, which is exactly why this does.
+     */
+    const readme = read('README.md');
+    const mentioned = new Set(
+      [...readme.matchAll(/`(src\/[A-Za-z0-9._/-]+)`/g)].map((match) => match[1] ?? ''),
+    );
+    expect(mentioned.size).toBeGreaterThan(10);
+    for (const path of mentioned) {
+      const target = path.endsWith('/') ? path.slice(0, -1) : path;
+      expect(existsSync(join(root, target)), `${path} is named in README but does not exist`).toBe(
+        true,
+      );
+    }
+  });
+});
+
 describe('bundle patch', () => {
   const patch = read(pkg.dsh.bundle.patch);
 

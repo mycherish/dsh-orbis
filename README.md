@@ -79,7 +79,7 @@ Workspace 面板与设置（v1 截图，v2 布局未变，仅新增 4 项设置�
 | `executing` | 有未结算的 `tool/call` | 青蓝，粒子高速流动 |
 | `responding` | 首个 `text-delta` | 紫，流体更快 |
 | `waiting` | `approval/asked`（未决） | 琥珀，轨道减速 |
-| `quiet` | 运行中且静默 ≥10s、无工具在跑 | 灰蓝，全场最静，只留一丝微光 |
+| `quiet` | 运行中且静默 ≥30s、无工具在跑 | 灰蓝，全场最静，只留一丝微光 |
 | `completed` | `turn/end{completed\|max-tokens}`、`agent/turn-stopping` | 绿，能量聚合扩散 |
 | `interrupted` | `turn/end{interrupted\|aborted}`、`assistant/message.interrupted` | 琥珀，短暂高频 |
 | `error` | `agent/error`、`turn/end{error\|blocked}` | 红，短促警示 |
@@ -97,7 +97,9 @@ waiting > error > interrupted > completed > executing
 2. **`executing` 不吃静默**。一个跑 3 分钟的命令仍是"执行中"，静默档位单独上报（`quietLevel` 0–3），不把"在干活"误判成"卡住"。
 3. **`completed` / `interrupted` / `error` 是带寿命的保持态**（2500ms / 3000ms / 4000ms），到期自动回落。
 
-静默四档：`0–10s` / `10–30s` / `30–60s` / `>60s`，用 `performance.now()` 单调时钟测量，系统时间跳变不会凭空制造静默。
+静默四档：`0–30s` / `30–60s` / `60–180s` / `>180s`，用 `performance.now()` 单调时钟测量，系统时间跳变不会凭空制造静默。
+
+> 第一档取 30s 而不是 10s 是有意的：`quiet` 是"连流式帧都停了"的信号，而一次普通的推理停顿、一次长命令的工具执行都能轻松超过 10s —— 10s 会让面板在完全正常的回合里反复闪进"安静"。真正要防的"卡住"在 30s 以上才有意义。
 
 ---
 
@@ -113,7 +115,7 @@ DSH Host 进程                         浏览器（DSH Web GUI）
 │ approval/request（瀑布）      │      │  ├ transport（SSE + 轮询兜底）     │
 │        ↓                     │      │  └ store（zustand + localStorage） │
 │ normalize（白名单化）         │      │                ↑                  │
-│ categories（10 族分类）       │      │                │                  │
+│ classifier（13 族分类）       │      │                │                  │
 │ correlation（callId 关联）    │ SSE  │                │                  │
 │ stream（瞬时帧→相位）         │─────▶│  GET /api/orbis/events            │
 │ quiet（单调时钟静默）         │ JSON │  GET /api/orbis/state             │
@@ -127,15 +129,19 @@ DSH Host 进程                         浏览器（DSH Web GUI）
 | 路径 | 职责 |
 |---|---|
 | `src/shared/protocol.ts` | 唯一共享契约：`OrbitSnapshot` / `OrbitActivity` / 常量 |
-| `src/host/index.ts` | 插件入口：挂 7 个监听、起 ticker、注册路由、卸载清理 |
+| `src/host/index.ts` | 插件入口：挂 8 个监听、起 ticker、注册路由、卸载清理 |
 | `src/host/hub.ts` | 每会话状态 fold、双时钟、40 条环形缓冲、会话 LRU、通知节流 |
 | `src/host/state-machine.ts` | 十一状态机（纯函数，可测） |
 | `src/host/correlation.ts` | callId 关联：乱序 / 重复 / 结果先到 / 超时 |
 | `src/host/stream.ts` | 瞬时帧折叠（只读类型标签） |
-| `src/host/quiet.ts` | 单调时钟与静默四档 |
-| `src/host/categories.ts` | 工具分类注册表 + `other` 兜底 |
-| `src/host/normalize.ts` | DSH 事件 → Activity DTO（安全边界，纯函数） |
-| `src/host/routes.ts` | `/state` 与 `/events`（SSE）只读路由 |
+| `src/host/context/silence-detector.ts` | 单调时钟与静默四档 |
+| `src/host/context/phase-inference.ts` | 由流式帧推断「准备 / 思考 / 回复」 |
+| `src/host/context/task-context-engine.ts` | 任务上下文：标题、计划、活动聚合 |
+| `src/host/context/activity-aggregator.ts` | 活动行 → 计数与最近完成项 |
+| `src/host/activity/classifier.ts` | 工具分类注册表（13 族）+ `unknown` 兜底 |
+| `src/host/activity/normalizer.ts` | 工具调用 → Activity DTO |
+| `src/host/activity/redactor.ts` | 隐私白名单：浏览器能看到的字段全由这里产出 |
+| `src/host/routes.ts` | `/state` 与 `/events`（SSE）只读路由 + 收容检查 |
 | `src/client/index.tsx` | 浏览器入口：注册 `shell.overlay` + 词典 |
 | `src/client/layer.tsx` | 覆盖层编排：总开关、生命周期、HUD 挂载、双渲染器 |
 | `src/client/hud/` | Always-on 进度卡（纯函数规则 + 卡片组件） |
@@ -152,7 +158,7 @@ DSH Host 进程                         浏览器（DSH Web GUI）
 |---|---|
 | `turn/start` | `starting`、轮次计数 |
 | `step/start` / `step/end` | `thinking`、步数计数 |
-| `tool/call` | 建活动行（running），按 10 族分类，按 `callId` 记账 |
+| `tool/call` | 建活动行（running），按 13 族分类，按 `callId` 记账 |
 | `tool/result` | 结行（success/error/cancelled）+ 耗时（取 `message.toolCallId`） |
 | `approval/asked` / `approval/decided` | 审批行 + `waiting`，四种 outcome 各自落账 |
 | `assistant/message`（`interrupted: true`） | `interrupted` |
@@ -181,7 +187,7 @@ DSH Host 进程                         浏览器（DSH Web GUI）
 
 - 默认 30 FPS，可选 60；渲染器内部按累计时间节流，不会超帧。
 - `devicePixelRatio` 上限 1.5；粒子数 low≈120 / medium≈260 / high≈480（均 < 500）。
-- HUD 是纯 DOM，无 WebGL、无自有定时器；只在快照变化时重渲染。
+- HUD 是纯 DOM，无 WebGL，只有一个 1 秒定时器（把「已静默 N 秒」重新算一遍，避免秒数停住）；快照不变时不重渲染。
 - 瞬时流式帧最多几十帧/秒，但 Host 对订阅者按 120ms 窗口节流推送，SSE 不会被刷爆。
 - 标签页隐藏、窗口失焦、Workspace 关闭时暂停对应渲染循环；悬浮球在 Workspace 打开时也暂停（省一个 GPU 上下文）。
 - 渲染器随 canvas 创建一次，状态更新只调用 `setState`，**不会重建场景**。
@@ -241,9 +247,9 @@ plugin_manager remove_bundle    target=dsh-orbis
 | 项 | 命令 / 方式 | 结果 |
 |---|---|---|
 | 类型检查（`strict` + `noUncheckedIndexedAccess`） | `tsc --noEmit -p tsconfig.json` | ✅ 0 错误 |
-| 单元 / 集成测试 | `vitest run` | ✅ **304 项 / 17 文件**全过（含发布契约：产物 banner 必须与 `package.json` 同版本） |
-| 构建 | `node scripts/build.mjs` | ✅ `index.js` 68.4 kB、`client.js` 679.9 kB（41 模块），两次构建 sha256 一致 |
-| 发布体积 | `npm pack` | ✅ 19 个文件、822.6 kB（截图已转 WebP，8.7 MB → 613 kB） |
+| 单元 / 集成测试 | `vitest run` | ✅ **326 项 / 19 文件**全过（含发布契约：产物 banner 必须与 `package.json` 同版本） |
+| 构建 | `node scripts/build.mjs` | ✅ `index.js` 70.0 kB、`client.js` 680.1 kB（41 模块），两次构建 sha256 一致 |
+| 发布体积 | `npm pack` | ✅ 19 个文件、823.9 kB（截图已转 WebP，8.7 MB → 613 kB） |
 | 运行时数据通路 | `curl /api/orbis/state` | ✅ 返回 v2 快照：`task.taskTitle` / `task.phase` / `task.silence.label` / 活动行 / 计数 全部在线生成 |
 | 静默与执行态共存 | 同上（工具执行中连续采样） | ✅ `silenceMs` 44→2112→4158 递增，状态保持 `executing` |
 | Host 行激活 | `plugin_manager list_plugins` / `set_plugin` | ✅ 重载 `applied`，无 warning |

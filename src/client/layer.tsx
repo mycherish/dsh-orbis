@@ -284,7 +284,6 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
   const mode = overlayModeOf({
     enabled,
     displayMode: settings.displayMode,
-    showHud: settings.showHud,
     open,
     visible,
     collapsed: hudCollapsed,
@@ -342,7 +341,20 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
   }, [orbCanvas, orbSlot]);
 
   const orbActive = surfaces.orb === 1 && !suspended && settings.animate;
-  const orb = useOrbOwner(orbCanvas, visual, quality, orbActive, enabled, settings.animate);
+  /*
+   * No slot means no canvas on screen: the chip (`compact` mode, and `auto` while
+   * idle) is text plus an SVG mark, with nothing for the orb to attach to. Handing
+   * the hook `null` in that case keeps a WebGL context and a frame loop from being
+   * spent on a canvas that is not in the document.
+   */
+  const orb = useOrbOwner(
+    orbSlot === null ? null : orbCanvas,
+    visual,
+    quality,
+    orbActive,
+    enabled,
+    settings.animate,
+  );
   const orbUnavailable = usesStaticOrb({ failed: orb.failed, animate: settings.animate });
 
   /*
@@ -470,7 +482,7 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
    * detailed Workspace instead, because there is no panel to unfold.
    */
   const activateOrb = React.useCallback(() => {
-    if (settings.displayMode === 'compact' || settings.displayMode === 'orb' || !settings.showHud) {
+    if (settings.displayMode === 'compact' || settings.displayMode === 'orb') {
       setOpen(true);
       return;
     }
@@ -483,7 +495,7 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
      */
     setHudCollapsed(false);
     setHudPinned(true);
-  }, [setHudCollapsed, setHudPinned, setOpen, settings.displayMode, settings.showHud]);
+  }, [setHudCollapsed, setHudPinned, setOpen, settings.displayMode]);
 
   /*
    * A Host that speaks a newer protocol than this bundle. The data is dropped

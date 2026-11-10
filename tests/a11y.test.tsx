@@ -57,7 +57,7 @@ beforeEach(() => {
   useOrbitStore.setState({
     snapshot: SNAPSHOT,
     connection: 'open',
-    settings: { ...DEFAULT_SETTINGS, displayMode: 'auto', showHud: true },
+    settings: { ...DEFAULT_SETTINGS, displayMode: 'auto' },
     open: false,
     visible: true,
     hudCollapsed: false,
@@ -194,7 +194,6 @@ describe('showWorkspace off must not strand the user', () => {
         settings: {
           ...useOrbitStore.getState().settings,
           enabled: true,
-          showHud: true,
         },
       });
     });

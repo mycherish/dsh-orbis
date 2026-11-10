@@ -24,7 +24,6 @@ export interface OverlayInput {
   enabled: boolean;
   displayMode: OrbitDisplayMode;
   /** Show the always-on panel at all (off ⇒ energy ball only). */
-  showHud: boolean;
   /** Allow the detailed Workspace panel. */
   /** Workspace open. */
   open: boolean;
@@ -54,8 +53,22 @@ export function overlayModeOf(input: OverlayInput): OverlayMode {
   if (!input.enabled) return 'hidden';
   if (!input.visible) return 'hidden';
   if (input.open) return 'workspace';
-  // `compact` and `orb` both mean "ball only"; `showHud: false` says the same.
-  if (input.displayMode === 'compact' || input.displayMode === 'orb' || !input.showHud) return 'compact';
+  /*
+   * The three modes have to mean three different things — they did not.
+   *
+   * `compact` and `orb` both fell through to the same ball-only mode, and a
+   * 「常驻进度卡」 switch produced that mode a third time; the compact *chip* the
+   * stylesheet styles only ever appeared when `auto` happened to be idle. Now:
+   *
+   *   auto    — the panel while the Agent works, the chip while it is idle;
+   *   compact — always the chip (one line of text, no WebGL at all);
+   *   orb     — always the 76px ball, nothing else.
+   *
+   * `compact` therefore mounts the HUD (which renders its chip) rather than the
+   * launcher; `orb` is the only mode that mounts the launcher.
+   */
+  if (input.displayMode === 'orb') return 'compact';
+  if (input.displayMode === 'compact') return 'expanded';
   const wantsPanel = input.pinned || isActiveState(input.state);
   return wantsPanel && !input.collapsed ? 'expanded' : 'compact';
 }

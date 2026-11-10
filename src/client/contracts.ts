@@ -140,8 +140,6 @@ export interface OrbitSettings {
   enabled: boolean;
   /** How the always-on surface behaves. */
   displayMode: OrbitDisplayMode;
-  /** Show the always-on HUD at all. */
-  showHud: boolean;
   /** Show the activity list inside the Workspace. */
   showActivity: boolean;
   /** Show the "最近活动" block inside the HUD. */
@@ -170,7 +168,6 @@ export type OrbAnimationSettings = Pick<
 export const DEFAULT_SETTINGS: OrbitSettings = {
   enabled: true,
   displayMode: 'auto',
-  showHud: true,
   showActivity: true,
   showRecentActivity: true,
   showSilenceAlert: true,

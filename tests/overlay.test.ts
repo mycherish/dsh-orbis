@@ -8,9 +8,10 @@ import {
   overlayModeOf,
   showsRestoreDot,
   surfacesOf,
-  type OverlayInput,
   usesStaticOrb,
+  type OverlayInput,
 } from '../src/client/overlay';
+import { hudCardMode } from '../src/client/hud/progress';
 import { LAUNCHER_SIZE, type OrbitDisplayMode } from '../src/client/contracts';
 import { clampLauncherPosition } from '../src/client/launcher';
 import type { OrbitAgentState } from '../src/shared/protocol';
@@ -22,7 +23,6 @@ function input(overrides: Partial<OverlayInput> = {}): OverlayInput {
   return {
     enabled: true,
     displayMode: 'auto',
-    showHud: true,
     open: false,
     visible: true,
     collapsed: false,
@@ -51,10 +51,13 @@ describe('overlay mode: one surface at a time', () => {
     }
   });
 
-  it('honours the explicit display modes', () => {
-    expect(overlayModeOf(input({ state: 'executing', displayMode: 'compact' }))).toBe('compact');
+  it('honours the explicit display modes, and they mean three different things', () => {
+    // `compact` is the chip: the HUD is mounted and folds itself to one line.
+    expect(overlayModeOf(input({ state: 'executing', displayMode: 'compact' }))).toBe('expanded');
+    expect(overlayModeOf(input({ state: 'idle', displayMode: 'compact' }))).toBe('expanded');
+    // `orb` is the 76px ball and nothing else — the only mode that mounts the launcher.
     expect(overlayModeOf(input({ state: 'executing', displayMode: 'orb' }))).toBe('compact');
-    expect(overlayModeOf(input({ state: 'executing', showHud: false }))).toBe('compact');
+    expect(overlayModeOf(input({ state: 'idle', displayMode: 'orb' }))).toBe('compact');
   });
 
   it('a hand-folded panel stays folded until the user unfolds it', () => {
@@ -144,7 +147,6 @@ describe('overlay surfaces: never two orbs', () => {
                         input({
                           displayMode,
                           state,
-                          showHud,
                           open,
                           collapsed,
                           pinned,
@@ -186,7 +188,7 @@ describe('overlay surfaces: never two orbs', () => {
  */
 describe('a click on the orb always lands somewhere visible', () => {
   const orbClick = (state: OrbitAgentState, collapsed: boolean, pinned: boolean) =>
-    input({ displayMode: 'auto', showHud: true, state, collapsed, pinned });
+    input({ displayMode: 'auto', state, collapsed, pinned });
 
   it('unfolds the panel from every resting state, even when it was already unfolded', () => {
     for (const state of ['idle', 'quiet', 'thinking', 'executing', 'waiting'] as const) {
@@ -295,5 +297,43 @@ describe('usesStaticOrb', () => {
 
   it('uses the live canvas when the renderer is healthy and animation is on', () => {
     expect(usesStaticOrb({ failed: false, animate: true })).toBe(false);
+  });
+});
+
+/*
+ * The three display modes must be three different things (2.1.9, option A).
+ *
+ * They were not: `compact` and `orb` resolved to the same ball-only mode, and the
+ * 「常驻进度卡」 switch produced that mode a third time. The chip the stylesheet draws
+ * only appeared when `auto` happened to be idle. This pins the resolved surface of
+ * each mode so the three cannot silently collapse again.
+ */
+describe('the three display modes resolve to three different surfaces', () => {
+  const resolved = (displayMode: OrbitDisplayMode, state: OrbitAgentState) => {
+    const mode = overlayModeOf(input({ displayMode, state }));
+    const surfaces = surfacesOf(mode);
+    // What the mounted surface actually draws: the chip is the HUD in compact form.
+    const hudForm = surfaces.hud ? hudCardMode(displayMode, state, false) : 'none';
+    return `${mode}/${surfaces.hud ? `hud:${hudForm}` : 'launcher'}`;
+  };
+
+  it('auto shows the panel while the Agent works, and folds to the ball when idle', () => {
+    expect(resolved('auto', 'executing')).toBe('expanded/hud:expanded');
+    expect(resolved('auto', 'idle')).toBe('compact/launcher');
+    // Pinning is what keeps the chip up while idle — that is the pinned state's job.
+    expect(
+      resolved('auto', 'idle').length > 0 &&
+        overlayModeOf(input({ displayMode: 'auto', state: 'idle', pinned: true })),
+    ).toBe('expanded');
+  });
+
+  it('compact always shows the chip, busy or idle', () => {
+    expect(resolved('compact', 'executing')).toBe('expanded/hud:compact');
+    expect(resolved('compact', 'idle')).toBe('expanded/hud:compact');
+  });
+
+  it('orb only ever shows the ball', () => {
+    expect(resolved('orb', 'executing')).toBe('compact/launcher');
+    expect(resolved('orb', 'idle')).toBe('compact/launcher');
   });
 });

@@ -91,14 +91,6 @@ export function SettingsPopover({ settings, onChange }: SettingsPopoverProps): R
         />
       </SettingRow>
 
-      <SettingRow label={LABELS.settings.showHud.label} hint={LABELS.settings.showHud.hint}>
-        <Switch
-          checked={settings.showHud}
-          label={LABELS.settings.showHud.label}
-          onChange={(next) => onChange({ showHud: next })}
-        />
-      </SettingRow>
-
       <SettingRow label={LABELS.settings.showActivity.label} hint={LABELS.settings.showActivity.hint}>
         <Switch
           checked={settings.showActivity}

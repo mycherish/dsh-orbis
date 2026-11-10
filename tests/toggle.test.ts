@@ -174,7 +174,6 @@ describe('loadSettings — v1 migration', () => {
     // The v2 fields the v1 payload never had.
     expect(settings.enabled).toBe(DEFAULT_SETTINGS.enabled);
     expect(settings.displayMode).toBe(DEFAULT_SETTINGS.displayMode);
-    expect(settings.showHud).toBe(DEFAULT_SETTINGS.showHud);
     expect(settings.showActivity).toBe(DEFAULT_SETTINGS.showActivity);
   });
 
@@ -229,7 +228,6 @@ describe('loadSettings — garbage tolerance', () => {
     const settings = sanitizeSettings({
       enabled: false,
       displayMode: 'orb',
-      showHud: false,
       showActivity: 'nope',
       fps: 60,
       particles: 'low',
@@ -237,10 +235,12 @@ describe('loadSettings — garbage tolerance', () => {
       glow: true,
       reduceMotion: 'system',
       pauseWhenHidden: null,
+      // Fields removed in 2.1.9 must be ignored, not resurrected.
+      showHud: false,
+      showWorkspace: false,
     });
     expect(settings.enabled).toBe(false);
     expect(settings.displayMode).toBe('orb');
-    expect(settings.showHud).toBe(false);
     expect(settings.showActivity).toBe(DEFAULT_SETTINGS.showActivity);
     expect(settings.fps).toBe(60);
     expect(settings.particles).toBe('low');
@@ -263,13 +263,10 @@ describe('master switch persistence', () => {
   });
 
   it('survives patchSettings and reloads with the new fields', () => {
-    useOrbitStore
-      .getState()
-      .patchSettings({ enabled: false, displayMode: 'compact', showHud: false, fps: 60 });
+    useOrbitStore.getState().patchSettings({ enabled: false, displayMode: 'compact', fps: 60 });
     const reloaded = loadSettings();
     expect(reloaded.enabled).toBe(false);
     expect(reloaded.displayMode).toBe('compact');
-    expect(reloaded.showHud).toBe(false);
     expect(reloaded.fps).toBe(60);
   });
 

@@ -171,7 +171,6 @@ export const LABELS = {
       hint: '常驻卡片何时展开',
       options: { auto: '自动展开', compact: '始终紧凑', orb: '仅能量球' },
     },
-    showHud: { label: '常驻进度卡', hint: '不打开工作区也能看到进度' },
     showActivity: { label: '活动列表', hint: '工作区右侧的实时记录' },
     showRecentActivity: { label: '最近活动', hint: 'HUD 中的最近 5 条活动' },
     showSilenceAlert: { label: '静默提醒', hint: '长时间无活动时在 HUD 提示' },

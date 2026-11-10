@@ -175,7 +175,6 @@ export const LABELS = {
     showActivity: { label: '活动列表', hint: '工作区右侧的实时记录' },
     showRecentActivity: { label: '最近活动', hint: 'HUD 中的最近 5 条活动' },
     showSilenceAlert: { label: '静默提醒', hint: '长时间无活动时在 HUD 提示' },
-    showWorkspace: { label: '详细 Workspace', hint: '允许打开完整工作区面板' },
     animate: { label: '3D 动画', hint: '关闭后只保留静态球体' },
     fps: { label: '帧率', hint: '渲染帧率上限', options: { '30': '30', '60': '60' } },
     particles: {

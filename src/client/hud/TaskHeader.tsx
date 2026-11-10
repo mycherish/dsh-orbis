@@ -17,8 +17,6 @@ export interface TaskHeaderProps {
   connection: OrbitConnection;
   /** The user pinned the panel; the pin button renders pressed + glowing. */
   pinned: boolean;
-  /** `settings.showWorkspace`: no `···` affordance when the panel is disallowed. */
-  showWorkspace: boolean;
   onCollapse: () => void;
   onOpenWorkspace: () => void;
   onPin: (next: boolean) => void;
@@ -109,20 +107,16 @@ export function TaskHeader(props: TaskHeaderProps): React.ReactElement {
       </span>
       <div className="no-hud-actions">
         {/*
-         * Always present, even when `showWorkspace` is off.
-         *
-         * That switch hides the detailed panel, and the settings sheet lives *inside*
-         * that panel — so hiding this button as well left the user with no way to turn
-         * the switch back on (reported from a real session; clearing localStorage was
-         * the only way out). When the panel is disallowed the same button means
-         * "enable it again", which `openWorkspace` in the shell implements.
+         * Always present. It used to be gated on a `showWorkspace` switch that could
+         * hide the panel *and* the settings sheet inside it, stranding the user with
+         * no way back; the switch is gone, so the entry always is here.
          */}
         <button
           type="button"
           className="no-hud-ibtn"
           data-hud-open-workspace=""
-          title={props.showWorkspace ? '打开工作区' : '重新启用详细 Workspace'}
-          aria-label={props.showWorkspace ? '打开工作区' : '重新启用详细 Workspace'}
+          title="打开工作区"
+          aria-label="打开工作区"
           onClick={props.onOpenWorkspace}
         >
           <MoreIcon />

@@ -148,8 +148,6 @@ export interface OrbitSettings {
   showRecentActivity: boolean;
   /** Show the silence reminder when nothing has happened for a while. */
   showSilenceAlert: boolean;
-  /** Allow opening the detailed Workspace panel. */
-  showWorkspace: boolean;
   /** Keep the 3D orb animating (off = static sphere, zero GPU frames). */
   animate: boolean;
   fps: 30 | 60;
@@ -176,7 +174,6 @@ export const DEFAULT_SETTINGS: OrbitSettings = {
   showActivity: true,
   showRecentActivity: true,
   showSilenceAlert: true,
-  showWorkspace: true,
   animate: true,
   fps: 30,
   particles: 'medium',

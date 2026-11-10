@@ -26,7 +26,6 @@ export interface OverlayInput {
   /** Show the always-on panel at all (off ⇒ energy ball only). */
   showHud: boolean;
   /** Allow the detailed Workspace panel. */
-  showWorkspace: boolean;
   /** Workspace open. */
   open: boolean;
   /** User hid the floating surface with ×. */
@@ -54,7 +53,7 @@ export function isActiveState(state: OrbitAgentState): boolean {
 export function overlayModeOf(input: OverlayInput): OverlayMode {
   if (!input.enabled) return 'hidden';
   if (!input.visible) return 'hidden';
-  if (input.open && input.showWorkspace) return 'workspace';
+  if (input.open) return 'workspace';
   // `compact` and `orb` both mean "ball only"; `showHud: false` says the same.
   if (input.displayMode === 'compact' || input.displayMode === 'orb' || !input.showHud) return 'compact';
   const wantsPanel = input.pinned || isActiveState(input.state);
@@ -95,6 +94,19 @@ export function showsRestoreDot(
   mode: OverlayMode,
 ): boolean {
   return mode === 'hidden' && input.enabled && !input.visible;
+}
+
+/**
+ * Should the surfaces draw the static fallback instead of the live canvas?
+ *
+ * Two situations, one answer:
+ *  - the renderer died (a browser-initiated context loss) — there is nothing to draw;
+ *  - the user turned 「3D 动画」 off — the *setting* promises "只保留静态球体", and
+ *    the only `renderer.render()` lives inside the rAF loop, so with animation off
+ *    nothing is ever drawn and the slot would be blank rather than still.
+ */
+export function usesStaticOrb(input: { failed: boolean; animate: boolean }): boolean {
+  return input.failed || !input.animate;
 }
 
 /** Total number of orb instances a mode may have mounted. Always 0 or 1. */

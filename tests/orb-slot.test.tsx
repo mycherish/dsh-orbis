@@ -75,7 +75,7 @@ beforeEach(() => {
   useOrbitStore.setState({
     snapshot: SNAPSHOT,
     connection: 'open',
-    settings: { ...DEFAULT_SETTINGS, displayMode: 'auto', showHud: true, showWorkspace: true },
+    settings: { ...DEFAULT_SETTINGS, displayMode: 'auto', showHud: true },
     open: false,
     visible: true,
     hudCollapsed: false,

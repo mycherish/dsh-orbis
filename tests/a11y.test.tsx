@@ -57,7 +57,7 @@ beforeEach(() => {
   useOrbitStore.setState({
     snapshot: SNAPSHOT,
     connection: 'open',
-    settings: { ...DEFAULT_SETTINGS, displayMode: 'auto', showHud: true, showWorkspace: true },
+    settings: { ...DEFAULT_SETTINGS, displayMode: 'auto', showHud: true },
     open: false,
     visible: true,
     hudCollapsed: false,
@@ -195,7 +195,6 @@ describe('showWorkspace off must not strand the user', () => {
           ...useOrbitStore.getState().settings,
           enabled: true,
           showHud: true,
-          showWorkspace: false,
         },
       });
     });
@@ -205,7 +204,6 @@ describe('showWorkspace off must not strand the user', () => {
 
     act(() => entry?.click());
 
-    expect(useOrbitStore.getState().settings.showWorkspace, 'the switch follows the click').toBe(true);
     expect(container?.querySelector('[data-orbis-surface="workspace"]')).not.toBeNull();
   });
 });

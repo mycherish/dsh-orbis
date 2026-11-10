@@ -9,6 +9,7 @@ import {
   showsRestoreDot,
   surfacesOf,
   type OverlayInput,
+  usesStaticOrb,
 } from '../src/client/overlay';
 import { LAUNCHER_SIZE, type OrbitDisplayMode } from '../src/client/contracts';
 import { clampLauncherPosition } from '../src/client/launcher';
@@ -22,7 +23,6 @@ function input(overrides: Partial<OverlayInput> = {}): OverlayInput {
     enabled: true,
     displayMode: 'auto',
     showHud: true,
-    showWorkspace: true,
     open: false,
     visible: true,
     collapsed: false,
@@ -70,9 +70,11 @@ describe('overlay mode: one surface at a time', () => {
     expect(overlayModeOf(input({ state: 'idle', pinned: true }))).toBe('expanded');
   });
 
-  it('workspace wins over the panel, and only when allowed', () => {
+  it('an open Workspace wins over the panel', () => {
     expect(overlayModeOf(input({ state: 'executing', open: true }))).toBe('workspace');
-    expect(overlayModeOf(input({ state: 'executing', open: true, showWorkspace: false }))).toBe('expanded');
+    // The `showWorkspace` switch that used to veto this is gone (2.1.9): it could
+    // hide the panel *and* the settings sheet inside it, so it could not be undone.
+    expect(overlayModeOf(input({ state: 'idle', open: true }))).toBe('workspace');
   });
 
   it('the master switch and an explicit hide both mean hidden', () => {
@@ -132,7 +134,7 @@ describe('overlay surfaces: never two orbs', () => {
     for (const displayMode of modes) {
       for (const state of states) {
         for (const showHud of [true, false]) {
-          for (const showWorkspace of [true, false]) {
+          {
             for (const open of [true, false]) {
               for (const collapsed of [true, false]) {
                 for (const pinned of [true, false]) {
@@ -143,7 +145,6 @@ describe('overlay surfaces: never two orbs', () => {
                           displayMode,
                           state,
                           showHud,
-                          showWorkspace,
                           open,
                           collapsed,
                           pinned,
@@ -154,7 +155,7 @@ describe('overlay surfaces: never two orbs', () => {
                       const surfaces = surfacesOf(mode);
                       expect(surfaces.orb).toBeLessThanOrEqual(1);
                       expect(surfaces.hud && surfaces.workspace).toBe(false);
-                      if (surfaces.workspace) expect(open && showWorkspace && enabled && visible).toBe(true);
+                      if (surfaces.workspace) expect(open && enabled && visible).toBe(true);
                       if (mode === 'hidden') expect(enabled && visible).toBe(false);
                       checked += 1;
                     }
@@ -166,7 +167,8 @@ describe('overlay surfaces: never two orbs', () => {
         }
       }
     }
-    expect(checked).toBe(3 * 11 * 2 * 2 * 2 * 2 * 2 * 2 * 2);
+    // modes × states × showHud × open × collapsed × pinned × visible × enabled
+    expect(checked).toBe(3 * 11 * 2 * 2 * 2 * 2 * 2 * 2);
   });
 
   it('treats only idle and quiet as inactive', () => {
@@ -271,5 +273,27 @@ describe('mount chain: single overlay root, single orb', () => {
     // The old unconditional launcher mount ("visible ?") is what caused the
     // duplicate orb; it must not come back.
     expect(source.includes('{visible ? (')).toBe(false);
+  });
+});
+
+/*
+ * 「3D 动画」off must still show a ball (2.1.9).
+ *
+ * The only `renderer.render()` call lives inside the rAF loop, so turning animation
+ * off left the orb slot *blank* rather than still — the opposite of what the setting
+ * says on screen ("关闭后只保留静态球体"). The surfaces already have a static fallback
+ * for a dead renderer; this makes the switch use it too.
+ */
+describe('usesStaticOrb', () => {
+  it('draws the static ball when animation is off', () => {
+    expect(usesStaticOrb({ failed: false, animate: false })).toBe(true);
+  });
+
+  it('draws the static ball when the renderer is gone', () => {
+    expect(usesStaticOrb({ failed: true, animate: true })).toBe(true);
+  });
+
+  it('uses the live canvas when the renderer is healthy and animation is on', () => {
+    expect(usesStaticOrb({ failed: false, animate: true })).toBe(false);
   });
 });

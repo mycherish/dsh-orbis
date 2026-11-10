@@ -119,7 +119,7 @@ export function OrbisHUD(props: OrbisHUDProps): React.ReactElement | null {
   if (autoExpanded === 'compact') {
     // `auto` folds by hand and unfolds by hand; `compact` opens the Workspace —
     // unless the user disallowed the Workspace, in which case unfold instead.
-    const reopen = settings.displayMode === 'auto' || settings.showWorkspace === false;
+    const reopen = settings.displayMode === 'auto';
     const hint = reopen ? '展开' : '打开';
     const detail = task === null ? '等待第一条活动…' : footerStats(task, elapsed);
     return (
@@ -177,7 +177,6 @@ export function OrbisHUD(props: OrbisHUDProps): React.ReactElement | null {
         state={state}
         connection={connection}
         pinned={props.pinned}
-        showWorkspace={settings.showWorkspace}
         onCollapse={props.onCollapse}
         onOpenWorkspace={props.onOpenWorkspace}
         onPin={props.onPin}

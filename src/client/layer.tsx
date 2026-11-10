@@ -21,7 +21,7 @@ import {
 } from './contracts';
 import { createOrbRenderer } from './orb';
 import { createOrbOwner } from './orb-owner';
-import { overlayModeOf, showsRestoreDot, surfacesOf } from './overlay';
+import { overlayModeOf, showsRestoreDot, surfacesOf, usesStaticOrb } from './overlay';
 import { clampLauncherPosition, Launcher, LauncherRestore } from './launcher';
 import { OrbisHUD } from './hud';
 import { WorkspaceView } from './workspace';
@@ -96,6 +96,7 @@ function useOrbOwner(
   quality: OrbQuality,
   active: boolean,
   enabled: boolean,
+  animate: boolean,
 ): RendererHandle {
   const ownerRef = React.useRef<ReturnType<typeof createOrbOwner> | null>(null);
   const visualRef = React.useRef(visual);
@@ -118,7 +119,18 @@ function useOrbOwner(
    * which is the opposite of what the README promises.
    */
   React.useEffect(() => {
-    if (canvas === null || !enabled) return undefined;
+    /*
+     * `animate` belongs here, not only in the start/pause effect below. With
+     * animation off there is nothing to draw (the only render call is inside the
+     * frame loop), so building a WebGL context would burn one of the browser's ~16
+     * contexts to paint nothing — and `attach()` starts the loop on its own, which
+     * nothing would ever pause. The surfaces draw their static ball instead.
+     */
+    if (canvas === null || !enabled || !animate) {
+      owner.detach();
+      setFailed(false);
+      return undefined;
+    }
     owner.attach(canvas, visualRef.current, qualityRef.current);
     setFailed(owner.failed);
     return () => {
@@ -126,7 +138,7 @@ function useOrbOwner(
       setFailed(false);
       setFps(0);
     };
-  }, [canvas, owner, enabled]);
+  }, [canvas, owner, enabled, animate]);
 
   // A lost context has to reach React, not just the owner's own flag: the
   // surfaces decide between a live canvas and their static fallback from this.
@@ -273,7 +285,6 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
     enabled,
     displayMode: settings.displayMode,
     showHud: settings.showHud,
-    showWorkspace: settings.showWorkspace,
     open,
     visible,
     collapsed: hudCollapsed,
@@ -331,7 +342,8 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
   }, [orbCanvas, orbSlot]);
 
   const orbActive = surfaces.orb === 1 && !suspended && settings.animate;
-  const orb = useOrbOwner(orbCanvas, visual, quality, orbActive, enabled);
+  const orb = useOrbOwner(orbCanvas, visual, quality, orbActive, enabled, settings.animate);
+  const orbUnavailable = usesStaticOrb({ failed: orb.failed, animate: settings.animate });
 
   /*
    * Moving the one canvas between slots changes its box, and nothing else
@@ -357,11 +369,6 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
     }
     setFps(orb.fps);
   }, [enabled, orb.fps, setFps]);
-
-  // `showWorkspace: false` must not leave an orphaned panel on screen.
-  React.useEffect(() => {
-    if (open && !settings.showWorkspace) setOpen(false);
-  }, [open, settings.showWorkspace, setOpen]);
 
   // ---- ESC closes the workspace ------------------------------------------
   React.useEffect(() => {
@@ -449,18 +456,14 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
   const expandHud = React.useCallback(() => setHudCollapsed(false), [setHudCollapsed]);
   const pinHud = React.useCallback((next: boolean) => setHudPinned(next), [setHudPinned]);
   /**
-   * Open the detailed panel — and repair the switch if it is what made the panel
-   * unreachable.
+   * Open the detailed panel.
    *
-   * `showWorkspace: false` used to hide the header button, the launcher path and the
-   * settings sheet (which lives inside the panel) at once, so the preference could
-   * not be undone from the UI. The click means "show me the panel", so the switch
-   * follows the click; the only alternative was a user clearing localStorage.
+   * There used to be a `showWorkspace` switch that could hide every way into this
+   * panel — including the settings sheet, which only lives inside it — so the switch
+   * could not be undone from the UI. It was removed in 2.1.9: opening the panel is
+   * the switch.
    */
-  const openWorkspace = React.useCallback(() => {
-    if (!settings.showWorkspace) patchSettings({ showWorkspace: true });
-    setOpen(true);
-  }, [patchSettings, setOpen, settings.showWorkspace]);
+  const openWorkspace = React.useCallback(() => setOpen(true), [setOpen]);
   /**
    * The compact orb is the only entry point in `compact` mode. In `auto` it
    * unfolds the panel; when the user pinned the ball-only mode it opens the
@@ -537,7 +540,7 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
           connection={connection}
           settings={settings}
           fps={orb.fps}
-          orbUnavailable={orb.failed}
+          orbUnavailable={orbUnavailable}
           bindOrbSlot={bindWorkspaceSlot}
           onSettingsChange={patchSettings}
           onClose={() => setOpen(false)}
@@ -551,7 +554,7 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
           collapsed={hudCollapsed}
           pinned={hudPinned}
           reduceMotion={quality.reduceMotion}
-          orbUnavailable={orb.failed}
+          orbUnavailable={orbUnavailable}
           bindOrbSlot={bindHudSlot}
           onCollapse={collapseHud}
           onExpand={expandHud}
@@ -567,7 +570,7 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
           connection={connection}
           open={false}
           translate={translate}
-          orbUnavailable={orb.failed}
+          orbUnavailable={orbUnavailable}
           onToggle={activateOrb}
           onHide={() => setVisible(false)}
           onPositionChange={setPosition}

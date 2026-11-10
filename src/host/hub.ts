@@ -147,7 +147,20 @@ export class OrbitHub {
     this.maxSessions = options.maxSessions ?? 8;
     this.maxActivities = options.maxActivities ?? MAX_ACTIVITY_ROWS;
     this.clock = options.now ?? (() => Date.now());
-    this.mono = options.mono ?? this.clock;
+    /*
+     * Production default is the process-relative clock. Every duration the state
+     * machine reasons about — silence buckets, hold expiry, the 10-minute orphan
+     * call timeout — is a delta, and a wall clock can jump: an NTP correction or a
+     * sleep/wake forward would fabricate an hour of silence and cancel running
+     * tools, while a jump backwards would postpone every timeout. `monotonicNow()`
+     * was written for exactly this and then never wired up, so the two clocks were
+     * the same function.
+     *
+     * A caller that injects `now` is driving a fake timeline from a test and wants
+     * one clock, not two; only the default pair splits (`mono` for durations, wall
+     * for the human-facing `updatedAt`).
+     */
+    this.mono = options.mono ?? options.now ?? monotonicNow;
     this.callTimeoutMs = options.callTimeoutMs ?? CALL_TIMEOUT_MS;
     this.streamNotifyMs = Math.max(0, options.streamNotifyMs ?? 120);
   }
@@ -396,6 +409,15 @@ export class OrbitHub {
             && activity.callId === callId
           ) {
             this.settleRow(record, activity.id, 'success', epoch);
+            /*
+             * Tell the state machine *which* ask this call releases. The machine
+             * used to clear both ask sets whenever any tool started, which meant a
+             * second outstanding approval (or question) stopped being reported as
+             * blocking the moment the first one ran, even though nobody had
+             * answered it. The id attribution belongs here because this is the only
+             * place that knows the call-to-ask correlation.
+             */
+            applyEvent(record.machine, { kind: 'approval-decided', id: activity.id, at });
           }
         }
         applyEvent(record.machine, { kind: 'tool-start', id: callId, at });

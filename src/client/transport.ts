@@ -37,6 +37,14 @@ export function startTransport(options: TransportOptions): Transport {
   let stopped = false;
   let polling = false;
   let sawFrame = false;
+  /**
+   * Bumped by every `close()`, i.e. by `restart()` and `stop()`.
+   *
+   * Anything the previous connection had in flight is stale from that moment on,
+   * and a poll has to know it before it writes to the store.
+   */
+  let pollGeneration = 0;
+  let inFlight: AbortController | undefined;
 
   const clearPoll = (): void => {
     if (pollTimer !== undefined) {
@@ -68,23 +76,45 @@ export function startTransport(options: TransportOptions): Transport {
 
   const poll = async (): Promise<void> => {
     if (stopped) return;
+    /*
+     * One poll at a time. Two in flight is how an older response ends up applied
+     * after a newer one; skipping a tick instead keeps the ordering trivially true
+     * and costs nothing at a 900 ms cadence against a loopback route.
+     */
+    if (inFlight !== undefined) return;
+    /*
+     * A poll belongs to the connection generation it started in. `restart()` and
+     * `stop()` bump the generation and abort whatever is in flight, but a response
+     * that is already on the wire cannot be recalled — without the stamp it lands
+     * after the switch and overwrites the *new* Session's snapshot with the old
+     * one's, which is the only way the store can go backwards in time.
+     */
+    const generation = pollGeneration;
     const sessionId = options.sessionId();
+    const controller = new AbortController();
+    inFlight = controller;
     try {
       const response = await fetch(endpoint(STATE_ROUTE, sessionId), {
         headers: { accept: 'application/json' },
         cache: 'no-store',
+        signal: controller.signal,
       });
+      if (stopped || generation !== pollGeneration) return;
       if (!response.ok) {
         options.onConnection('reconnecting');
         return;
       }
       const snapshot = (await response.json()) as OrbitSnapshot;
-      if (stopped) return;
+      if (stopped || generation !== pollGeneration) return;
       sawFrame = true;
       options.onSnapshot(snapshot);
       options.onConnection('open');
     } catch {
+      // An aborted poll is this module's own doing, not a connection failure.
+      if (stopped || generation !== pollGeneration) return;
       options.onConnection('reconnecting');
+    } finally {
+      if (inFlight === controller) inFlight = undefined;
     }
   };
 
@@ -135,6 +165,9 @@ export function startTransport(options: TransportOptions): Transport {
   const close = (): void => {
     clearFirstFrame();
     clearPoll();
+    pollGeneration += 1;
+    inFlight?.abort();
+    inFlight = undefined;
     if (source !== undefined) {
       source.onopen = null;
       source.onmessage = null;

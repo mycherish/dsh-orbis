@@ -43,7 +43,18 @@ export interface RouteHandle {
 
 interface Client {
   sessionId: string | undefined;
-  /** Highest snapshot version actually written to this stream. */
+  /**
+   * The Session the watermark below belongs to.
+   *
+   * A `sessionId: undefined` subscription follows whatever Session the Hub picked
+   * last, so the identity can change under one connection. Versions are per
+   * Session record, which makes comparing two of them meaningless across a switch:
+   * with the watermark left alone, following a Session that had reached version 11
+   * onto a fresh one at version 2 dropped every frame until the new Session passed
+   * 11 on its own.
+   */
+  lastSessionId: string | undefined;
+  /** Highest snapshot version written to this stream for `lastSessionId`. */
   lastVersion: number;
   /** Consecutive dropped writes; reset by any successful one. */
   stalled: number;
@@ -174,6 +185,18 @@ export function registerOrbitRoutes(hub: OrbitHub, webServer: WebServerLike): Ro
    */
   const pushSnapshot = (client: Client): void => {
     const snapshot = hub.snapshot(client.sessionId);
+    /*
+     * Versions belong to one Session record, so the watermark is only meaningful
+     * together with the identity it was taken from. Two things invalidate it:
+     * the Hub resolving a different Session for this connection (auto-follow), and
+     * a version that went *backwards*, which proves the record was evicted and
+     * re-created under the same id. Both mean "start from scratch", not "nothing
+     * new to say".
+     */
+    if (snapshot.sessionId !== client.lastSessionId || snapshot.version < client.lastVersion) {
+      client.lastSessionId = snapshot.sessionId;
+      client.lastVersion = -1;
+    }
     if (snapshot.version <= client.lastVersion) return;
     /*
      * Advance the watermark only on a real write. Advancing it after a dropped
@@ -262,6 +285,7 @@ export function registerOrbitRoutes(hub: OrbitHub, webServer: WebServerLike): Ro
           const opening = hub.snapshot(sessionId);
           client = {
             sessionId,
+            lastSessionId: opening.sessionId,
             lastVersion: opening.version,
             stalled: 0,
             send(text: string, version?: number): boolean {

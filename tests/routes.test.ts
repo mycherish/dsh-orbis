@@ -328,3 +328,62 @@ describe('foreign request containment', () => {
     expect(response?.status).toBe(200);
   });
 });
+
+describe('auto-follow subscriptions', () => {
+  let local: { dispose(): void; clients(): number } | undefined;
+
+  afterEach(() => {
+    local?.dispose();
+    local = undefined;
+  });
+
+  it('pushes a Session switch even when the new Session has a lower version', async () => {
+    let now = T0;
+    const hub = new OrbitHub({ now: () => now, mono: () => now });
+    // Session `a` reaches a high version; it is what a follow subscription opens on.
+    for (let index = 0; index < 11; index += 1) {
+      now += 10;
+      hub.handleStatus('a', 'running');
+    }
+    const { routes, webServer } = fakeServer();
+    local = registerOrbitRoutes(hub, webServer);
+    const events = routes.find((route) => route.path === EVENTS_ROUTE);
+    const response = await events?.resource(pageRequest(EVENTS_ROUTE));
+    const reader = response?.body?.getReader();
+    if (reader === undefined) throw new Error('no stream');
+
+    const opening = await readFrame(reader);
+    expect(opening.type).toBe('snapshot');
+    if (opening.type !== 'snapshot') return;
+    expect(opening.snapshot.sessionId).toBe('a');
+    const highVersion = opening.snapshot.version;
+    expect(highVersion).toBeGreaterThan(2);
+
+    // Session `b` becomes the most recent one while still at version 2.
+    now += 10;
+    hub.handleStatus('b', 'running');
+    now += 10;
+    hub.handleStatus('b', 'running');
+
+    /*
+     * Versions are per record, so `2 <= 11` told the stream there was nothing new
+     * and this connection stopped updating for good: the GUI showed a Session that
+     * had gone quiet while the one the user had switched to never appeared.
+     */
+    let switched: OrbitFrame | undefined;
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const candidate = await readFrame(reader);
+      if (candidate.type === 'snapshot' && candidate.snapshot.sessionId === 'b') {
+        switched = candidate;
+        break;
+      }
+    }
+    expect(switched).toBeDefined();
+    if (switched?.type === 'snapshot') {
+      // The whole point: the new Session is *behind* the old watermark.
+      expect(switched.snapshot.version).toBeLessThan(highVersion);
+    }
+
+    await reader.cancel();
+  });
+});

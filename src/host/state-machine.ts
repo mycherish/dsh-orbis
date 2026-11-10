@@ -234,8 +234,16 @@ export function applyEvent(input: MachineState, event: OrbitMachineEvent): Machi
     case 'tool-start':
       state.running = true;
       state.phase = 'none';
-      state.approvalIds = [];
-      state.questionIds = [];
+      /*
+       * This used to clear both ask sets outright, on the theory that "a tool
+       * started, so whatever was blocking is over". That is only true for the ask
+       * this turn actually unblocked: with approvals A and B outstanding, starting
+       * A wiped B as well and the panel stopped reporting `waiting` while B was
+       * still unanswered. Each ask now leaves the set through its own
+       * `approval-decided` / `question-settled` event, which the Hub sends with the
+       * exact id (`bridge:<callId>` for the adopted placeholder, the durable id
+       * otherwise). Nothing here needs a blanket clear.
+       */
       if (!state.openTools.includes(event.id)) state.openTools = [...state.openTools, event.id];
       state.lastActivityAt = event.at;
       clearHolds(state);

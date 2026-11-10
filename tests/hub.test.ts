@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OrbitHub, type SessionEventLike } from '../src/host/hub';
+import { OrbitHub, monotonicNow, type SessionEventLike } from '../src/host/hub';
 import { COMPLETED_HOLD_MS, ERROR_HOLD_MS, MAX_ACTIVITY_ROWS } from '../src/shared/protocol';
 import { TASK_TITLE_FALLBACK } from '../src/shared/task-context-types';
 
@@ -775,5 +775,70 @@ describe('host reload backfill', () => {
     const hub = new OrbitHub({ now: () => T0 });
     hub.seedTitle('s1', '   ');
     expect(hub.taskContext('s1').taskTitle).toBe(TASK_TITLE_FALLBACK);
+  });
+});
+
+describe('clocks', () => {
+  // The *production* default pair is covered in tests/clocks.test.ts; everything
+  // below injects both clocks deliberately.
+  it('measures durations on its own clock, so a wall-clock jump cannot fake silence', () => {
+    let wall = T0;
+    let mono = 0;
+    const hub = new OrbitHub({ now: () => wall, mono: () => mono });
+    hub.handleStatus('s1', 'running');
+
+    mono = 5_000;
+    // What an NTP correction, a sleep/wake or a manual change looks like to
+    // `Date.now()`: an hour appears to pass in one step. Silence, hold expiry and
+    // the orphan-call timeout are all deltas, so none of them may believe it.
+    wall = T0 + 3_600_000;
+
+    expect(hub.snapshot('s1').silenceMs).toBe(5_000);
+  });
+
+  it('defaults to a process-relative clock, not the wall clock', () => {
+    // `performance.now()` counts from process start, so it sits orders of
+    // magnitude below epoch milliseconds. When the hub fell back to `Date.now()`
+    // — which is what it did, despite the comment that claimed otherwise — this
+    // comparison is the one thing that fails.
+    expect(monotonicNow()).toBeLessThan(Date.now() - 60_000);
+  });
+});
+
+describe('concurrent asks', () => {
+  it('keeps a second outstanding approval blocking when the first tool starts', () => {
+    const hub = new OrbitHub({ now: () => T0 });
+    hub.handleStatus('s1', 'running');
+    hub.handleApproval('s1', 'bash', 'c1');
+    hub.handleApproval('s1', 'write', 'c2');
+    expect(hub.snapshot('s1').agentState).toBe('waiting');
+
+    hub.handleSessionEvent('s1', toolCall(1, 'c1', 'bash', '{"command":"ls"}', T0 + 5));
+
+    /*
+     * `c1` was answered and is running, but nobody has said anything about `c2`.
+     * The state machine used to clear both ask sets on any `tool-start`, so the
+     * panel dropped out of `waiting` and stopped telling the user there was still
+     * an unanswered approval in front of them.
+     */
+    const snapshot = hub.snapshot('s1');
+    expect(snapshot.agentState).toBe('waiting');
+    expect(snapshot.task.waitingReason).toBe('approval');
+  });
+
+  it('releases the waiting state once the last ask is decided', () => {
+    const hub = new OrbitHub({ now: () => T0 });
+    hub.handleStatus('s1', 'running');
+    hub.handleApproval('s1', 'bash', 'c1');
+    hub.handleApproval('s1', 'write', 'c2');
+
+    hub.handleSessionEvent('s1', toolCall(1, 'c1', 'bash', '{"command":"ls"}', T0 + 5));
+    hub.handleSessionEvent('s1', {
+      type: 'approval/decided',
+      time: T0 + 6,
+      data: { id: 'bridge:c2', outcome: 'allow' },
+    });
+
+    expect(hub.snapshot('s1').agentState).not.toBe('waiting');
   });
 });

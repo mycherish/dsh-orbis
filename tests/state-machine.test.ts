@@ -76,13 +76,22 @@ describe('state machine: documented transitions', () => {
     expect(machine.agentState).toBe('idle');
   });
 
-  it('approval request → waiting, and the next tool start releases it', () => {
+  it('approval request → waiting, released only by that ask being decided', () => {
     const machine = run([
       { kind: 'status', status: 'running', at: T0 },
       { kind: 'approval-asked', id: 'ap1', at: T0 + 1 },
     ]);
     expect(machine.agentState).toBe('waiting');
+    /*
+     * A tool starting used to clear every outstanding ask, which is how a second
+     * pending approval silently stopped being reported as blocking. The machine
+     * has no way to tell which ask a bare `tool-start` belongs to, so it must wait
+     * for the correlated `approval-decided` — which the Hub now sends from the one
+     * place that knows the call-to-ask mapping.
+     */
     applyEvent(machine, { kind: 'tool-start', id: 'a', at: T0 + 2 });
+    expect(machine.agentState).toBe('waiting');
+    applyEvent(machine, { kind: 'approval-decided', id: 'ap1', at: T0 + 3 });
     expect(machine.agentState).toBe('executing');
   });
 

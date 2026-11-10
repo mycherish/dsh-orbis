@@ -23,3 +23,6 @@ docs/AUDIT-2026-11-09-full.md
 
 # npm pack output
 *.tgz
+
+# pnpm local store (created when the shared store was not writable)
+.pnpm-store/

@@ -66,10 +66,17 @@ export class FrameClock {
     this.windowFrames += 1;
     const span = now - this.windowStart;
     if (span >= FPS_MIN_SAMPLE_MS) {
-      this.fpsValue = (this.windowFrames * 1000) / span;
+      /*
+       * `windowFrames` counts the frames seen since the window opened, so the
+       * frames describe `windowFrames - 1` intervals: `N / span` claims one frame
+       * more than the display delivered. Over a short sample that is not a rounding
+       * artefact — nine frames across 267 ms read back as 34 fps on a 30 fps cap,
+       * and a 60 Hz display read 61. Divide intervals, not frames.
+       */
+      this.fpsValue = ((this.windowFrames - 1) * 1000) / span;
       if (span >= FPS_WINDOW_MS) {
         this.windowStart = now;
-        this.windowFrames = 0;
+        this.windowFrames = 1;
       }
     }
 

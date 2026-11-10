@@ -64,6 +64,9 @@ export interface OrbisHUDProps {
 /** Built once: the sheet is a constant string, not a per-render allocation. */
 const CSS = buildHudStyles();
 
+/** The expanded card`s id, so the folded chip can point `aria-controls` at it. */
+const HUD_PANEL_ID = 'orbis-hud-panel';
+
 /** One second between clock ticks; the panel is not a stopwatch. */
 const TICK_MS = 1000;
 
@@ -134,7 +137,19 @@ export function OrbisHUD(props: OrbisHUDProps): React.ReactElement | null {
         style={vars}
         title={`${chip} · ${title.text} · ${detail}`}
         aria-label={reopen ? `展开 Caelum Orbis 面板 · ${chip}` : `打开工作区 · ${chip}`}
+        /*
+         * Two different affordances share this chip, so they need two different
+         * ARIA states. Unfolding the panel is a disclosure — `aria-expanded` is
+         * correct there (it is `false` by definition, because the chip only exists
+         * while the panel is folded, and it names the panel it will expand). Opening
+         * the Workspace is not a disclosure at all: it raises a dialog, which is
+         * what `aria-haspopup` describes. The old code sent `aria-expanded={false}`
+         * for both, which told a screen reader about a collapsed region that the
+         * second button never had.
+         */
         aria-expanded={reopen ? false : undefined}
+        aria-controls={reopen ? HUD_PANEL_ID : undefined}
+        aria-haspopup={reopen ? undefined : 'dialog'}
         onClick={reopen ? props.onExpand : props.onOpenWorkspace}
       >
         <style>{CSS}</style>
@@ -151,7 +166,9 @@ export function OrbisHUD(props: OrbisHUDProps): React.ReactElement | null {
 
   return (
     <div
+      id={HUD_PANEL_ID}
       className="no-hud-panel"
+      data-orbis-surface="hud"
       data-tone={tone}
       data-reduce={reduce}
       data-state={state}

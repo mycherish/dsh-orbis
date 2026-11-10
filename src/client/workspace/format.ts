@@ -40,6 +40,9 @@ export function relativeTime(from: number, now: number): string {
 /** `840ms / 1.2s / 1m 04s` — one decimal below a minute, clock-like above. */
 export function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return LABELS.units.empty;
+  // A zero-duration row is real (tool results that land within one frame) and must
+  // say so; only sub-millisecond values round up to a visible 1ms.
+  if (ms === 0) return `0${LABELS.units.milli}`;
   if (ms < 1000) return `${Math.max(1, Math.round(ms))}${LABELS.units.milli}`;
   const seconds = ms / 1000;
   if (seconds < 60) return `${seconds.toFixed(1)}${LABELS.units.second}`;

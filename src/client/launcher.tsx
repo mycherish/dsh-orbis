@@ -159,6 +159,7 @@ export function Launcher(props: LauncherProps): React.ReactElement {
   return (
     <div
       className="no-launcher"
+      data-orbis-surface="launcher"
       role="button"
       tabIndex={0}
       aria-label={`${translate('launcher.label')} · ${translate(`state.${agentState}`)}`}

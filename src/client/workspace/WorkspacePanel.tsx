@@ -80,8 +80,15 @@ export function WorkspacePanel(props: WorkspaceViewProps): React.ReactElement {
       <div
         className="no-panel"
         role="dialog"
-        aria-modal="true"
+        /*
+         * Deliberately not `aria-modal="true"`. The panel floats over a
+         * conversation that stays live behind it — the Agent keeps working, the
+         * user keeps reading — and focus is not trapped inside it. Claiming
+         * modality told screen readers the rest of the page was inert, which was
+         * never true. `role="dialog"` plus the label is the honest description.
+         */
         aria-label={LABELS.panel.ariaLabel}
+        data-orbis-surface="workspace"
         tabIndex={-1}
         ref={panelRef}
       >

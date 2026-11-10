@@ -73,6 +73,27 @@ describe('frame clock', () => {
     expect(clock.fps).toBeLessThanOrEqual(31);
     expect(clock.elapsed).toBeGreaterThan(1);
   });
+
+  /*
+   * The readout used to over-count by one frame per window: the window opened on
+   * the first frame and counted that frame, so `frames / span` described N frames
+   * across N-1 intervals. A display capped at 30 reported 31, and one capped at 60
+   * reported 61 — a number the hardware had just proven impossible.
+   */
+  it('never reports more fps than the display actually delivered', () => {
+    for (const cap of [30, 60]) {
+      const clock = new FrameClock();
+      clock.setTargetFps(cap);
+      const frame = 1000 / cap;
+      let peak = 0;
+      for (let i = 0; i * frame <= 3000; i += 1) {
+        clock.tick(i * frame);
+        peak = Math.max(peak, clock.fps);
+      }
+      expect(peak, `a ${cap} fps cap must never read back as ${peak}`).toBeLessThanOrEqual(cap);
+      expect(peak).toBeGreaterThanOrEqual(cap - 1);
+    }
+  });
 });
 
 describe('state visuals', () => {

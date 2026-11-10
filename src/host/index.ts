@@ -162,6 +162,14 @@ export function apply(ctx: HostContextLike): void {
     try {
       const title = service.get(session)?.title;
       if (typeof title !== 'string' || title.trim() === '') return;
+      /*
+       * `titled` only remembers which Sessions already carry a Host title, so it is
+       * capped like its sibling map rather than growing for the life of the process:
+       * one entry per Session ever seen is unbounded in a long-running Host. Dropping
+       * the memory costs one extra read per old Session, and re-seeding a title is
+       * idempotent — `hub.seedTitle` sets it, it never clears it.
+       */
+      if (titled.size > 1024) titled.clear();
       titled.add(sessionId);
       titleCheckedAt.delete(sessionId);
       hub.seedTitle(sessionId, title);

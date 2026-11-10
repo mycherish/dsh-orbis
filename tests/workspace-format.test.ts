@@ -4,6 +4,7 @@ import {
   activityVisual,
   categoryVisualLabel,
   kindAddsInfo,
+  formatDuration,
   stateColor,
   statusColor,
   CATEGORIES,
@@ -350,5 +351,27 @@ describe('row second line never repeats the row name', () => {
   it('treats whitespace-only words as nothing to add', () => {
     expect(kindAddsInfo('   ', '执行测试')).toBe(false);
     expect(kindAddsInfo(' 执行测试 ', '执行测试')).toBe(false);
+  });
+});
+
+describe('formatDuration', () => {
+  /*
+   * `Math.max(1, …)` guarded against a blank "0ms", but it also rewrote a genuine
+   * zero into "1ms" — an activity row that took no measurable time claimed to have
+   * taken a millisecond. Zero is a real duration; only a negative or non-finite one
+   * is missing data.
+   */
+  it('reports a real zero as zero, not as one millisecond', () => {
+    expect(formatDuration(0)).toBe(`0${LABELS.units.milli}`);
+  });
+
+  it('keeps sub-millisecond rows visible instead of rounding them to nothing', () => {
+    expect(formatDuration(0.4)).toBe(`1${LABELS.units.milli}`);
+    expect(formatDuration(840)).toBe(`840${LABELS.units.milli}`);
+  });
+
+  it('still treats a negative or non-finite duration as missing', () => {
+    expect(formatDuration(-1)).toBe(LABELS.units.empty);
+    expect(formatDuration(Number.NaN)).toBe(LABELS.units.empty);
   });
 });

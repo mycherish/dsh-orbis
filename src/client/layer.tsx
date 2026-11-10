@@ -19,6 +19,7 @@ import { overlayModeOf, showsRestoreDot, surfacesOf } from './overlay';
 import { clampLauncherPosition, Launcher, LauncherRestore } from './launcher';
 import { OrbisHUD } from './hud';
 import { WorkspaceView } from './workspace';
+import { LABELS } from './workspace/labels';
 import { useOrbitStore } from './store';
 import { startTransport, type Transport } from './transport';
 import {
@@ -37,6 +38,10 @@ export interface OrbitLayerProps {
 }
 
 const FPS_SAMPLE_MS = 1000;
+
+/** The surfaces that can host the one canvas, widest first. */
+type OrbSlotKey = 'workspace' | 'hud' | 'launcher';
+const EMPTY_ORB_SLOTS: Record<OrbSlotKey, HTMLElement | null> = { workspace: null, hud: null, launcher: null };
 
 /** Remember the last Session the main column displayed. */
 let lastSessionId: string | undefined;
@@ -268,10 +273,32 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
     canvas.setAttribute('aria-hidden', 'true');
     return canvas;
   }, []);
-  const [orbSlot, setOrbSlot] = React.useState<HTMLElement | null>(null);
-  const bindOrbSlot = React.useCallback((el: HTMLElement | null) => {
-    setOrbSlot(el);
-  }, []);
+  const [slots, setSlots] = React.useState<Record<OrbSlotKey, HTMLElement | null>>(EMPTY_ORB_SLOTS);
+  /*
+   * One slot per surface, never one shared value.
+   *
+   * Every surface used to hand its element to a single `setOrbSlot` state, and
+   * they do not all hand it over at the same moment: the HUD's ball slot is a ref
+   * callback (React calls it in the layout phase) while the Workspace panel binds
+   * from a passive `useEffect`. Closing the Workspace therefore ran, inside one
+   * commit, "HUD is the slot" and then "no slot" — the later passive cleanup won,
+   * the shell removed the canvas from the card it had just been put into, and the
+   * orb stayed black until something unrelated re-bound a slot. Keying the binder
+   * makes the outcome order-independent: an unmounting surface can only clear its
+   * own key, and whichever surface is actually on screen still holds the orb.
+   */
+  const bindSlotFor = React.useCallback(
+    (key: OrbSlotKey) =>
+      (el: HTMLElement | null): void => {
+        setSlots((prev) => (prev[key] === el ? prev : { ...prev, [key]: el }));
+      },
+    [],
+  );
+  const bindWorkspaceSlot = React.useMemo(() => bindSlotFor('workspace'), [bindSlotFor]);
+  const bindHudSlot = React.useMemo(() => bindSlotFor('hud'), [bindSlotFor]);
+  const bindLauncherSlot = React.useMemo(() => bindSlotFor('launcher'), [bindSlotFor]);
+  /** Widest surface wins; only one of them is ever mounted. */
+  const orbSlot = slots.workspace ?? slots.hud ?? slots.launcher;
 
   React.useEffect(() => {
     if (orbCanvas === null || orbSlot === null) return undefined;
@@ -320,12 +347,61 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
     if (!enabled || !open) return undefined;
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return;
+      /*
+       * Only the Escape that was aimed at our panel closes it.
+       *
+       * This listens in the capture phase, so it sees every key before anything
+       * else on the page does — and it used to `stopPropagation()` unconditionally,
+       * which meant that while the panel was open the Host's own Escape shortcut
+       * (and every other plugin's) silently stopped working. Whoever the key was
+       * meant for, we answered it.
+       */
+      const target = event.target;
+      if (!(target instanceof Element) || target.closest('[data-orbis-surface]') === null) return;
       event.stopPropagation();
       setOpen(false);
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [enabled, open, setOpen]);
+
+  /*
+   * Hand focus back when the panel closes.
+   *
+   * The panel focuses itself on mount (it is a `role="dialog"`), so closing it left
+   * focus on a node React had already removed: the browser drops it on `<body>`
+   * and a keyboard or screen-reader user loses their place with nothing announced.
+   * Only a *lost* focus is repaired — if the user has meanwhile moved focus
+   * somewhere real, that wins.
+   */
+  const wasOpen = React.useRef(false);
+  React.useEffect(() => {
+    if (open) {
+      wasOpen.current = true;
+      return;
+    }
+    if (!wasOpen.current) return;
+    wasOpen.current = false;
+    const active = document.activeElement;
+    /*
+     * Focus counts as lost when it sits on `<body>` or on a node that is no longer
+     * in the document — which is exactly where it is right after React removes the
+     * focused panel. Only then do we move it; a focus the user placed elsewhere in
+     * the meantime is theirs to keep.
+     */
+    const lost = active === null || active === document.body || !active.isConnected;
+    if (!lost) return;
+    /*
+     * A bare `[data-orbis-surface]` matches the panel/card *root* first (document
+     * order), and a div without a tabindex cannot take focus — which is why the
+     * first attempt at this silently did nothing. Match things that can actually
+     * be focused.
+     */
+    const home = document.querySelector<HTMLElement>(
+      '[data-orbis-surface] button:not([disabled]), [data-orbis-surface] [tabindex]:not([tabindex="-1"]), [data-orbis-surface][tabindex]',
+    );
+    home?.focus({ preventScroll: true });
+  }, [open]);
 
   /*
    * The saved position is viewport-relative, so it goes stale the moment the
@@ -381,11 +457,11 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
         <button
           type="button"
           className="no-enable"
-          title="启用 Caelum Orbis"
-          aria-label="启用 Caelum Orbis"
+          title={LABELS.settings.enabled.label}
+          aria-label={LABELS.settings.enabled.label}
           onClick={() => patchSettings({ enabled: true })}
         >
-          启用 Caelum Orbis
+          {LABELS.settings.enabled.label}
         </button>
       </React.Fragment>
     );
@@ -403,7 +479,7 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
           settings={settings}
           fps={orb.fps}
           orbUnavailable={orb.failed}
-          bindOrbSlot={bindOrbSlot}
+          bindOrbSlot={bindWorkspaceSlot}
           onSettingsChange={patchSettings}
           onClose={() => setOpen(false)}
         />
@@ -417,7 +493,7 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
           pinned={hudPinned}
           reduceMotion={quality.reduceMotion}
           orbUnavailable={orb.failed}
-          bindOrbSlot={bindOrbSlot}
+          bindOrbSlot={bindHudSlot}
           onCollapse={collapseHud}
           onExpand={expandHud}
           onOpenWorkspace={openWorkspace}
@@ -436,7 +512,7 @@ export function OrbitLayer(props: OrbitLayerProps): React.ReactElement {
           onToggle={activateOrb}
           onHide={() => setVisible(false)}
           onPositionChange={setPosition}
-          bindOrbSlot={bindOrbSlot}
+          bindOrbSlot={bindLauncherSlot}
         />
       ) : null}
       {showsRestoreDot({ enabled, visible }, mode) ? (

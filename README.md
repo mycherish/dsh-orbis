@@ -223,20 +223,68 @@ pnpm verify         # build + typecheck + test
 
 ### 安装 / 卸载
 
-三选一：
+#### 四条通道，任选其一
 
-```text
-# 1. 从 npm 安装（推荐，无需克隆仓库）
-设置 → 插件 → 添加插件 → 安装第三方插件 → 填 dsh-orbis
+四条通道最终都写同一份 `~/.dsh/profiles/<profile>/package.json` 并跑一次 pnpm，所以插件本身不区分来源。
 
-# 2. 从本地目录安装（改代码时用）
-plugin_manager install_bundle   target=/绝对路径/dsh-orbis
+| 通道 | 命令 / 操作 | 适合 |
+|---|---|---|
+| **Web GUI** | 设置 → 插件 → 添加插件 → 安装第三方插件 → 填 spec | 桌面日常，最省事 |
+| **plugin_manager 工具** | `install_bundle` 传 `target=<spec>` | 让 Agent 代装（本文档多数步骤用它） |
+| **DSH CLI** | `dsh plugin --profile <profile> add <spec>` | 脚本化 / 远程终端；后面的参数原样透传给 pnpm，`--registry=` 之类也在这里给 |
+| **手改清单** | `package.json` 里加依赖 + `pnpm install` | CI、离线镜像、需要精确锁版本 |
 
-# 3. 卸载
-plugin_manager remove_bundle    target=dsh-orbis
+#### spec 语法
+
+`plugin_manager` 与 CLI 共用同一个解析器（`dsh-plugin-manager` 的 `parseInstallSpec`），四类写法：
+
+| 形式 | 写法示例 | 说明 |
+|---|---|---|
+| registry | `dsh-orbis`、`dsh-orbis@2.1.4`、`dsh-orbis@^2` | npm 包名，可带版本范围。默认就是这一类 |
+| 本地目录 | `link:/绝对路径/dsh-orbis`、`file:/绝对路径/dsh-orbis`、`/绝对路径/dsh-orbis` | **相对路径会被直接拒绝**，必须写绝对路径。`link:` 不复制文件，改代码即时生效 |
+| tarball | `/绝对路径/dsh-orbis-2.1.4.tgz`、`https://…/dsh-orbis-2.1.4.tgz` | 离线 / 内网分发。`npm pack` 产出的就是这个 |
+| git | `github:mycherish/dsh-orbis#v2.1.4`、`git+https://github.com/mycherish/dsh-orbis.git`、`git@github.com:mycherish/dsh-orbis.git` | 跟主干或某个 tag。也认 gitlab / bitbucket / gist 简写 |
+
+> ⚠️ **用 npm spec 重装会覆盖现有的 `link:` 安装。** 本地改了源码、却用 `dsh plugin --profile desktop add dsh-orbis` 重装一次，profile 里那条 `link:` 就会被替换成 npm 上的版本 —— 于是你的改动"不见了"，而代码其实还在磁盘上。改代码时请始终用 `link:` 那条路径。
+
+#### 国内网络
+
+pnpm 的镜像参数在 CLI 通道直接透传：
+
+```bash
+dsh plugin --profile desktop add dsh-orbis --registry=https://registry.npmmirror.com
 ```
 
-安装后刷新一次 Harness 页面（浏览器半每个页面代次只加载一次），右下角出现进度卡与能量球。
+npmmirror 对新版本有分钟级同步延迟；刚发布的版本如果 404，等一会儿或临时加 `--registry=https://registry.npmjs.org`。本插件没有 `postinstall`、没有原生模块、不联网下载任何运行时资源，所以镜像只影响下载本身。
+
+#### 装完自检
+
+1. **刷新一次 Harness 页面**（浏览器半每个页面代次只加载一次，不刷新看不到新插件）。
+2. 右下角应出现进度卡或能量球；关掉「常驻进度卡」时是悬浮球。
+3. 路由自检（端口换成你 GUI 地址里的那个）：
+
+   ```bash
+   curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:<port>/api/orbis/state
+   ```
+
+   | 返回 | 含义 |
+   |---|---|
+   | `200` | 正常，Host 半在跑且路由已注册 |
+   | `403` | 被收容层拒了 —— 用了局域网 IP、跨站 Origin，或请求头里没有浏览器 fetch 元信息又不是 loopback（见上一节） |
+   | `404` | 路由没注册：DSH 版本低于 `0.2.2-rc.1`，或插件没启用 |
+   | 连接被拒 | 端口不对 / DSH 没监听 |
+
+#### 卸载
+
+三种都干净，挑一个：
+
+```text
+plugin_manager remove_bundle   target=dsh-orbis          # Agent / GUI 通道
+dsh plugin --profile desktop remove dsh-orbis            # CLI
+# 或手改 package.json 去掉依赖后 pnpm install
+```
+
+插件没有后台服务、没有跨会话落盘数据；卸载后浏览器侧残留的只有 localStorage 里的 `orbis.*` 偏好键（面板位置、HUD 折叠状态等），手动清掉即可。
 
 ---
 
@@ -247,15 +295,15 @@ plugin_manager remove_bundle    target=dsh-orbis
 | 项 | 命令 / 方式 | 结果 |
 |---|---|---|
 | 类型检查（`strict` + `noUncheckedIndexedAccess`） | `tsc --noEmit -p tsconfig.json` | ✅ 0 错误 |
-| 单元 / 集成测试 | `vitest run` | ✅ **326 项 / 19 文件**全过（含发布契约：产物 banner 必须与 `package.json` 同版本） |
-| 构建 | `node scripts/build.mjs` | ✅ `index.js` 70.0 kB、`client.js` 680.1 kB（41 模块），两次构建 sha256 一致 |
-| 发布体积 | `npm pack` | ✅ 19 个文件、823.9 kB（截图已转 WebP，8.7 MB → 613 kB） |
+| 单元 / 集成测试 | `vitest run` | ✅ **342 项 / 21 文件**全过（含发布契约：产物 banner 必须与 `package.json` 同版本） |
+| 构建 | `node scripts/build.mjs` | ✅ `index.js` 70.1 kB、`client.js` 680.9 kB（41 模块），两次构建 sha256 一致 |
+| 发布体积 | `npm pack` | ✅ 19 个文件、826.1 kB（截图已转 WebP，8.7 MB → 613 kB） |
 | 运行时数据通路 | `curl /api/orbis/state` | ✅ 返回 v2 快照：`task.taskTitle` / `task.phase` / `task.silence.label` / 活动行 / 计数 全部在线生成 |
 | 静默与执行态共存 | 同上（工具执行中连续采样） | ✅ `silenceMs` 44→2112→4158 递增，状态保持 `executing` |
 | Host 行激活 | `plugin_manager list_plugins` / `set_plugin` | ✅ 重载 `applied`，无 warning |
 | 十一状态渲染 | headless Chrome + SwiftShader | ✅ `docs/orb-states-v2.webp` |
 
-测试覆盖要点：十一状态机的全部迁移与优先级、静默分档、`executing` 不吃静默；callId 乱序 / 重复 / 结果先到 / 超时 / drain；瞬时帧只暴露类型标签；审批双通道合并与四种 outcome；**路径与参数脱敏**；SSE 首帧 / 变更推送 / 版本单调 / 卸载关流；总开关关闭后的设置迁移与零副作用路径；HUD 文案与展开策略；11 状态动效签名两两互异。
+测试覆盖要点：十一状态机的全部迁移与优先级、静默分档、`executing` 不吃静默；callId 乱序 / 重复 / 结果先到 / 超时 / drain；瞬时帧只暴露类型标签；审批双通道合并与四种 outcome；**路径与参数脱敏**；SSE 首帧 / 变更推送 / 版本单调 / 卸载关流；总开关关闭后的设置迁移与零副作用路径；HUD 文案与展开策略；11 状态动效签名两两互异；**单一 canvas 在 Workspace / HUD / 悬浮球之间迁移后仍存活**（关掉 Workspace 球体变黑的那次回归）；ESC 只吃本面板的按键、关闭后焦点不落到 `<body>`、非模态面板不谎报 `aria-modal`。
 
 未覆盖（需在真实页面人工确认）：
 

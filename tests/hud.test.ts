@@ -300,8 +300,9 @@ describe('runtimePills', () => {
 
   it('stops the clock at the last event while the stream is down', () => {
     const later = T_1402 + 942_000;
-    expect(runtimePills(task(), 'closed', later + 600_000).elapsed)
-      .toBe(runtimePills(task(), 'open', later).elapsed);
+    expect(runtimePills(task(), 'closed', later + 600_000).elapsed).toBe(
+      runtimePills(task(), 'open', later).elapsed,
+    );
     expect(runtimePills(task(), 'open', later + 600_000).elapsed).not.toBe('15 分 42 秒');
   });
 });
@@ -337,7 +338,14 @@ describe('hudCardMode — auto expand / manual fold', () => {
       expect(hudCardMode('auto', state, true), state).toBe('compact');
     }
     const burst: OrbitAgentState[] = [
-      'starting', 'thinking', 'preparing', 'executing', 'responding', 'waiting', 'error', 'completed',
+      'starting',
+      'thinking',
+      'preparing',
+      'executing',
+      'responding',
+      'waiting',
+      'error',
+      'completed',
     ];
     for (const state of burst) {
       expect(hudCardMode('auto', state, true), state).toBe('compact');
@@ -356,9 +364,14 @@ describe('shouldShowSilence', () => {
     const quiet = task({ silence: { ms: 45_000, level: 1, label: '已有 45 秒没有新活动。' } });
     expect(shouldShowSilence(quiet, true)).toBe(true);
     expect(shouldShowSilence(quiet, false)).toBe(false);
-    expect(shouldShowSilence(task({
-      silence: { ms: 200_000, level: 3, label: '已有 3 分钟没有新活动。' },
-    }), false)).toBe(false);
+    expect(
+      shouldShowSilence(
+        task({
+          silence: { ms: 200_000, level: 3, label: '已有 3 分钟没有新活动。' },
+        }),
+        false,
+      ),
+    ).toBe(false);
   });
 
   it('is false before the first snapshot', () => {
@@ -412,8 +425,10 @@ describe('currentStatusText', () => {
 describe('task title and phase', () => {
   it('marks the generic title as a fallback', () => {
     expect(taskTitleOf(null)).toEqual({ text: TASK_TITLE_FALLBACK, fallback: true });
-    expect(taskTitleOf(task({ taskTitle: '  ', titleSource: 'fallback' })))
-      .toEqual({ text: TASK_TITLE_FALLBACK, fallback: true });
+    expect(taskTitleOf(task({ taskTitle: '  ', titleSource: 'fallback' }))).toEqual({
+      text: TASK_TITLE_FALLBACK,
+      fallback: true,
+    });
     expect(taskTitleOf(task())).toEqual({ text: '联调 Egress VNI API', fallback: false });
   });
 
@@ -429,10 +444,12 @@ describe('footerStats', () => {
     const counts = task({ observedActivityCount: 5, toolCallCount: 4 });
     expect(footerStats(counts, '15 分 42 秒')).toBe('已观察到 5 项活动 · 工具 4 次 · 运行 15 分 42 秒');
     // No tools yet: the counter is omitted instead of printed as zero.
-    expect(footerStats(task({ observedActivityCount: 2, toolCallCount: 0 }), '3 秒'))
-      .toBe('已观察到 2 项活动 · 运行 3 秒');
-    expect(footerStats(task({ observedActivityCount: 0, toolCallCount: 0 }), '0 秒'))
-      .toBe('尚未观察到活动 · 运行 0 秒');
+    expect(footerStats(task({ observedActivityCount: 2, toolCallCount: 0 }), '3 秒')).toBe(
+      '已观察到 2 项活动 · 运行 3 秒',
+    );
+    expect(footerStats(task({ observedActivityCount: 0, toolCallCount: 0 }), '0 秒')).toBe(
+      '尚未观察到活动 · 运行 0 秒',
+    );
     expect(footerStats(null, '0 秒')).toBe('尚未收到任务事件');
   });
 });
@@ -440,7 +457,8 @@ describe('footerStats', () => {
 describe('hudActivityRows', () => {
   it('caps at five rows and keeps the Host order', () => {
     const rows = Array.from({ length: 8 }, (_, index) =>
-      activity({ id: `a${index}`, label: `活动 ${index}` }));
+      activity({ id: `a${index}`, label: `活动 ${index}` }),
+    );
     const shown = hudActivityRows(task({ recentActivities: rows }));
     expect(shown).toHaveLength(5);
     expect(shown.map((row) => row.id)).toEqual(['a0', 'a1', 'a2', 'a3', 'a4']);

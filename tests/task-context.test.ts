@@ -58,27 +58,87 @@ describe('activity aggregation', () => {
     const rows = [row('c1', 'file_write', 'running', { label: '修改文件', safeTarget: 'hub.ts' })];
     expect(currentActionOf(rows)).toBe('修改文件 · hub.ts');
     expect(currentActionOf([])).toBeUndefined();
-    const redacted = [row('c2', 'file_read', 'running', { label: '读取项目文件', safeTarget: '读取敏感配置文件', redacted: true })];
+    const redacted = [
+      row('c2', 'file_read', 'running', {
+        label: '读取项目文件',
+        safeTarget: '读取敏感配置文件',
+        redacted: true,
+      }),
+    ];
     expect(currentActionOf(redacted)).toBe('读取项目文件 · 读取敏感配置文件');
   });
 });
 
 describe('phase inference', () => {
   it('a pending approval always wins', () => {
-    const result = inferPhase({ rows: [row('c1', 'file_write', 'running')], turnOpen: true, responding: false, waitingApproval: true });
+    const result = inferPhase({
+      rows: [row('c1', 'file_write', 'running')],
+      turnOpen: true,
+      responding: false,
+      waitingApproval: true,
+    });
     expect(result.phase).toBe('waiting');
     expect(result.phaseLabel).toBe('等待审批');
     expect(result.confidence).toBe('high');
   });
 
   it('the newest running row decides the phase', () => {
-    expect(inferPhase({ rows: [row('c1', 'file_write', 'running')], turnOpen: true, responding: false, waitingApproval: false }).phase).toBe('editing');
-    expect(inferPhase({ rows: [row('c1', 'test', 'running')], turnOpen: true, responding: false, waitingApproval: false }).phase).toBe('testing');
-    expect(inferPhase({ rows: [row('c1', 'build', 'running')], turnOpen: true, responding: false, waitingApproval: false }).phase).toBe('building');
-    expect(inferPhase({ rows: [row('c1', 'api', 'running')], turnOpen: true, responding: false, waitingApproval: false }).phase).toBe('querying');
-    expect(inferPhase({ rows: [row('c1', 'inspection', 'running')], turnOpen: true, responding: false, waitingApproval: false }).phase).toBe('verifying');
-    expect(inferPhase({ rows: [row('c1', 'response', 'running')], turnOpen: true, responding: false, waitingApproval: false }).phase).toBe('answering');
-    expect(inferPhase({ rows: [row('c1', 'file_read', 'running')], turnOpen: true, responding: false, waitingApproval: false }).phase).toBe('reading');
+    expect(
+      inferPhase({
+        rows: [row('c1', 'file_write', 'running')],
+        turnOpen: true,
+        responding: false,
+        waitingApproval: false,
+      }).phase,
+    ).toBe('editing');
+    expect(
+      inferPhase({
+        rows: [row('c1', 'test', 'running')],
+        turnOpen: true,
+        responding: false,
+        waitingApproval: false,
+      }).phase,
+    ).toBe('testing');
+    expect(
+      inferPhase({
+        rows: [row('c1', 'build', 'running')],
+        turnOpen: true,
+        responding: false,
+        waitingApproval: false,
+      }).phase,
+    ).toBe('building');
+    expect(
+      inferPhase({
+        rows: [row('c1', 'api', 'running')],
+        turnOpen: true,
+        responding: false,
+        waitingApproval: false,
+      }).phase,
+    ).toBe('querying');
+    expect(
+      inferPhase({
+        rows: [row('c1', 'inspection', 'running')],
+        turnOpen: true,
+        responding: false,
+        waitingApproval: false,
+      }).phase,
+    ).toBe('verifying');
+    expect(
+      inferPhase({
+        rows: [row('c1', 'response', 'running')],
+        turnOpen: true,
+        responding: false,
+        waitingApproval: false,
+      }).phase,
+    ).toBe('answering');
+    expect(
+      inferPhase({
+        rows: [row('c1', 'file_read', 'running')],
+        turnOpen: true,
+        responding: false,
+        waitingApproval: false,
+      }).phase,
+    ).toBe('reading');
   });
 
   it('falls back to a majority of the last three rows', () => {
@@ -90,11 +150,15 @@ describe('phase inference', () => {
   });
 
   it('without tool evidence it says what it actually knows', () => {
-    expect(inferPhase({ rows: [], turnOpen: true, responding: true, waitingApproval: false }).phase).toBe('answering');
+    expect(inferPhase({ rows: [], turnOpen: true, responding: true, waitingApproval: false }).phase).toBe(
+      'answering',
+    );
     const low = inferPhase({ rows: [], turnOpen: true, responding: false, waitingApproval: false });
     expect(low.phase).toBe('understanding');
     expect(low.confidence).toBe('low');
-    expect(inferPhase({ rows: [], turnOpen: false, responding: false, waitingApproval: false }).phase).toBe('idle');
+    expect(inferPhase({ rows: [], turnOpen: false, responding: false, waitingApproval: false }).phase).toBe(
+      'idle',
+    );
   });
 });
 

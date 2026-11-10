@@ -52,13 +52,7 @@ const CATEGORY_KEYS: readonly OrbitToolCategory[] = [
 ];
 
 /** The five v2.0 activity statuses. */
-const STATUSES: readonly OrbitActivityStatus[] = [
-  'running',
-  'success',
-  'failed',
-  'cancelled',
-  'unknown',
-];
+const STATUSES: readonly OrbitActivityStatus[] = ['running', 'success', 'failed', 'cancelled', 'unknown'];
 
 /** The legend family each category must borrow (spec §3.2 → five node colours). */
 const EXPECTED_FAMILY: Record<OrbitToolCategory, string> = {
@@ -250,9 +244,7 @@ describe('buildTimeline', () => {
 
   it('ranks the five statuses by mark height and colour', () => {
     const model = buildTimeline(
-      STATUSES.map((status, index) =>
-        activity({ id: status, status, startedAt: 1_000 + index * 1_000 }),
-      ),
+      STATUSES.map((status, index) => activity({ id: status, status, startedAt: 1_000 + index * 1_000 })),
       1_000,
       5_000,
     );
@@ -302,10 +294,7 @@ describe('buildTimeline', () => {
 
   it('tolerates rows whose startedAt is not a finite number', () => {
     const model = buildTimeline(
-      [
-        activity({ id: 'bad', startedAt: Number.NaN }),
-        activity({ id: 'good', startedAt: 2_000 }),
-      ],
+      [activity({ id: 'bad', startedAt: Number.NaN }), activity({ id: 'good', startedAt: 2_000 })],
       2_000,
       4_000,
     );

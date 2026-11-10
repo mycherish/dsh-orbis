@@ -4,12 +4,7 @@
  * Kept free of React and three.js so both the shell and (if needed) the orb
  * module can be reasoned about independently.
  */
-import {
-  type OrbQuality,
-  type OrbVisualState,
-  type OrbitConnection,
-  type OrbitSettings,
-} from './contracts';
+import { type OrbQuality, type OrbVisualState, type OrbitConnection, type OrbitSettings } from './contracts';
 import type { OrbitAgentState, OrbitSnapshot } from '../shared/protocol';
 
 /** Base visual energy of each state, before recent-activity boost. */
@@ -34,10 +29,7 @@ function clamp01(value: number): number {
 }
 
 /** What the orb draws for one snapshot. */
-export function deriveVisual(
-  snapshot: OrbitSnapshot | null,
-  connection: OrbitConnection,
-): OrbVisualState {
+export function deriveVisual(snapshot: OrbitSnapshot | null, connection: OrbitConnection): OrbVisualState {
   if (snapshot === null) {
     return {
       agentState: 'idle',

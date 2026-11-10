@@ -13,7 +13,12 @@ function toolResult(callId: string, time: number, isError = false): SessionEvent
   return {
     type: 'tool/result',
     time,
-    data: { turn: 1, step: 1, message: { toolCallId: callId, isError }, ...(isError ? { error: { name: 'E', code: 'E_BROKEN' } } : {}) },
+    data: {
+      turn: 1,
+      step: 1,
+      message: { toolCallId: callId, isError },
+      ...(isError ? { error: { name: 'E', code: 'E_BROKEN' } } : {}),
+    },
   };
 }
 
@@ -232,7 +237,14 @@ describe('hub fold', () => {
     expect(hub.snapshot('s1').agentState).toBe('completed');
 
     // A delta frame with no Turn at all.
-    hub.handleStream('s1', { type: 'chunk', attemptId: 'a', revision: 1, index: 0, time: T0 + 11, chunk: { type: 'text-delta' } });
+    hub.handleStream('s1', {
+      type: 'chunk',
+      attemptId: 'a',
+      revision: 1,
+      index: 0,
+      time: T0 + 11,
+      chunk: { type: 'text-delta' },
+    });
     expect(hub.snapshot('s1').agentState).toBe('completed');
 
     // A frame still tagged with the Turn that already closed.
@@ -459,7 +471,12 @@ describe('hub v2: correlation, streams, approvals, quiet', () => {
     hub.handleStream('s1', { type: 'start', turn: 1, step: 1 });
     expect(hub.snapshot('s1').agentState).toBe('thinking');
 
-    hub.handleStream('s1', { type: 'chunk', turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'hi' } });
+    hub.handleStream('s1', {
+      type: 'chunk',
+      turn: 1,
+      step: 1,
+      chunk: { type: 'text-delta', index: 0, text: 'hi' },
+    });
     expect(hub.snapshot('s1').agentState).toBe('responding');
 
     hub.handleStream('s1', {
@@ -525,12 +542,32 @@ describe('hub v2: correlation, streams, approvals, quiet', () => {
     hub.handleSessionEvent('s1', {
       type: 'llm/retry',
       time: T0,
-      data: { retry: 1, turn: 1, step: 1, provider: 'deepseek', mode: 'normal', policyKey: 'k', maxRetries: 3, delayMs: 500, failure: { message: 'boom' } },
+      data: {
+        retry: 1,
+        turn: 1,
+        step: 1,
+        provider: 'deepseek',
+        mode: 'normal',
+        policyKey: 'k',
+        maxRetries: 3,
+        delayMs: 500,
+        failure: { message: 'boom' },
+      },
     });
     hub.handleSessionEvent('s1', {
       type: 'llm/retry',
       time: T0 + 1,
-      data: { retry: 1, turn: 1, step: 1, provider: 'deepseek', mode: 'normal', policyKey: 'k', maxRetries: 3, delayMs: 500, failure: { message: 'boom' } },
+      data: {
+        retry: 1,
+        turn: 1,
+        step: 1,
+        provider: 'deepseek',
+        mode: 'normal',
+        policyKey: 'k',
+        maxRetries: 3,
+        delayMs: 500,
+        failure: { message: 'boom' },
+      },
     });
     const snapshot = hub.snapshot('s1');
     expect(snapshot.metrics.retries).toBe(2);
@@ -580,7 +617,13 @@ describe('hub v2.0: task context', () => {
     let mono = start;
     let epoch = start;
     const hub = new OrbitHub({ now: () => epoch, mono: () => mono });
-    return { hub, advance(ms: number) { mono += ms; epoch += ms; } };
+    return {
+      hub,
+      advance(ms: number) {
+        mono += ms;
+        epoch += ms;
+      },
+    };
   }
 
   it('starts with the honest fallback title and no invented plan', () => {

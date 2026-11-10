@@ -86,9 +86,7 @@ export interface OrbitSnapshot {
 }
 
 /** Server-sent event frames. */
-export type OrbitFrame =
-  | { type: 'snapshot'; snapshot: OrbitSnapshot }
-  | { type: 'heartbeat'; at: number };
+export type OrbitFrame = { type: 'snapshot'; snapshot: OrbitSnapshot } | { type: 'heartbeat'; at: number };
 
 /** Maximum activity rows retained per Session. */
 export const MAX_ACTIVITY_ROWS = 40;

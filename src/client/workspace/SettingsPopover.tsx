@@ -36,12 +36,7 @@ const DENSITIES: readonly ParticleDensity[] = ['low', 'medium', 'high'];
 
 export function SettingsPopover({ settings, onChange }: SettingsPopoverProps): React.ReactElement {
   return (
-    <div
-      className="no-settings"
-      id="no-orbit-settings"
-      role="group"
-      aria-label={LABELS.panel.settingsAria}
-    >
+    <div className="no-settings" id="no-orbit-settings" role="group" aria-label={LABELS.panel.settingsAria}>
       <div className="no-settings-head">
         <span className="no-settings-title">{LABELS.panel.settingsTitle}</span>
         <span className="no-settings-hint">{LABELS.panel.settingsHint}</span>
@@ -58,10 +53,7 @@ export function SettingsPopover({ settings, onChange }: SettingsPopoverProps): R
         />
       </SettingRow>
 
-      <SettingRow
-        label={LABELS.settings.showSilenceAlert.label}
-        hint={LABELS.settings.showSilenceAlert.hint}
-      >
+      <SettingRow label={LABELS.settings.showSilenceAlert.label} hint={LABELS.settings.showSilenceAlert.hint}>
         <Switch
           checked={settings.showSilenceAlert}
           label={LABELS.settings.showSilenceAlert.label}

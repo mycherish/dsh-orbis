@@ -76,7 +76,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const panel = (): HTMLElement | null => container?.querySelector<HTMLElement>('[data-orbis-surface="workspace"]') ?? null;
+const panel = (): HTMLElement | null =>
+  container?.querySelector<HTMLElement>('[data-orbis-surface="workspace"]') ?? null;
 const isOpen = (): boolean => useOrbitStore.getState().open;
 const escapeOn = (target: EventTarget): void => {
   act(() => {

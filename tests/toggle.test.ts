@@ -22,7 +22,7 @@ vi.mock('zustand', () => {
       const get = (): AnyState => state;
       state = initializer(set, get);
       const hook = (selector?: (current: AnyState) => unknown): unknown =>
-        (typeof selector === 'function' ? selector(state) : state);
+        typeof selector === 'function' ? selector(state) : state;
       return Object.assign(hook, {
         getState: get,
         setState: set,
@@ -263,7 +263,9 @@ describe('master switch persistence', () => {
   });
 
   it('survives patchSettings and reloads with the new fields', () => {
-    useOrbitStore.getState().patchSettings({ enabled: false, displayMode: 'compact', showHud: false, fps: 60 });
+    useOrbitStore
+      .getState()
+      .patchSettings({ enabled: false, displayMode: 'compact', showHud: false, fps: 60 });
     const reloaded = loadSettings();
     expect(reloaded.enabled).toBe(false);
     expect(reloaded.displayMode).toBe('compact');

@@ -169,9 +169,7 @@ export function activityVisual(activity: OrbitActivity): ActivityVisual {
   /* Redaction is a text rule, failure a colour rule — they never fight. */
   const redacted = activity.redacted === true;
   const base =
-    activity.status === 'failed'
-      ? FAILED_VISUAL
-      : TOOL_VISUAL[activity.category] ?? TOOL_VISUAL.unknown;
+    activity.status === 'failed' ? FAILED_VISUAL : (TOOL_VISUAL[activity.category] ?? TOOL_VISUAL.unknown);
   return {
     key: base.key,
     glyph: base.glyph,
@@ -300,12 +298,9 @@ export function buildTimeline(
   if (!Number.isFinite(minTs) || !Number.isFinite(maxTs)) return EMPTY_TIMELINE;
 
   const anchor =
-    typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt <= minTs
-      ? startedAt
-      : minTs;
-  const tail = typeof updatedAt === 'number' && Number.isFinite(updatedAt) && updatedAt > maxTs
-    ? updatedAt
-    : maxTs;
+    typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt <= minTs ? startedAt : minTs;
+  const tail =
+    typeof updatedAt === 'number' && Number.isFinite(updatedAt) && updatedAt > maxTs ? updatedAt : maxTs;
   const total = tail - anchor;
   /* Keep ticks off the rounded rail ends: map 0..1 into 1.6%..98.4%. */
   const INSET = 1.6;

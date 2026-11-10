@@ -45,9 +45,10 @@ export function toolActivity(input: ToolCallInput): OrbitActivity {
   const toolName = clipLabel(input.rawName, 32);
   // The family word is the safe label; the raw name only survives when we could
   // not classify at all (it is the one thing that still tells the user something).
-  const label = classification.category === 'unknown' && toolName !== ''
-    ? toolName
-    : CATEGORY_LABEL[classification.category];
+  const label =
+    classification.category === 'unknown' && toolName !== ''
+      ? toolName
+      : CATEGORY_LABEL[classification.category];
 
   const base: OrbitActivity = {
     id: input.id,
@@ -195,11 +196,7 @@ export function reasoningActivity(
 }
 
 /** Settle a row in place: a new object, so React sees the change. */
-export function settledActivity(
-  row: OrbitActivity,
-  status: OrbitActivityStatus,
-  at: number,
-): OrbitActivity {
+export function settledActivity(row: OrbitActivity, status: OrbitActivityStatus, at: number): OrbitActivity {
   const duration = Math.max(0, at - row.startedAt);
   return { ...row, status, finishedAt: at, duration };
 }

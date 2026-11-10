@@ -66,7 +66,12 @@ function mulberry32(seed: number): () => number {
 const MIN_RADIUS = 1.24;
 const MAX_RADIUS = 2.0;
 
-function fillPositions(positions: Float32Array, seeds: Float32Array, scales: Float32Array, count: number): void {
+function fillPositions(
+  positions: Float32Array,
+  seeds: Float32Array,
+  scales: Float32Array,
+  count: number,
+): void {
   const random = mulberry32(0x9e3779b9);
   for (let i = 0; i < count; i += 1) {
     const inBand = random() < 0.28;

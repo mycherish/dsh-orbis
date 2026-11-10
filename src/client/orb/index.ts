@@ -14,7 +14,13 @@
  * - index.ts     生命周期、帧率节流、状态平滑插值（本文件）
  */
 import { PerspectiveCamera, Scene, SRGBColorSpace, WebGLRenderer } from 'three';
-import type { CreateOrbRenderer, OrbQuality, OrbRenderer, OrbRendererOptions, OrbVisualState } from '../contracts';
+import type {
+  CreateOrbRenderer,
+  OrbQuality,
+  OrbRenderer,
+  OrbRendererOptions,
+  OrbVisualState,
+} from '../contracts';
 import type { OrbitAgentState } from '../../shared/protocol';
 import { FrameClock } from './frame-clock';
 import { createParticleField } from './particles';
@@ -71,7 +77,8 @@ function hasWebGL(canvas: HTMLCanvasElement): boolean {
 
 function sanitizeQuality(quality: OrbQuality): OrbQuality {
   const fps = Number.isFinite(quality.fps) ? Math.min(120, Math.max(1, quality.fps)) : 30;
-  const particles = quality.particles === 'low' || quality.particles === 'high' ? quality.particles : 'medium';
+  const particles =
+    quality.particles === 'low' || quality.particles === 'high' ? quality.particles : 'medium';
   return {
     fps,
     particles,
@@ -201,7 +208,10 @@ export const createOrbRenderer: CreateOrbRenderer = (options: OrbRendererOptions
     }
     // 从未测量过：把后备缓冲边长换算回 CSS 像素，取一个正方形作为临时估计。
     // 只要拿到真实布局，下一帧就会修正（见 frame 里的按需复查）。
-    const ratio = Math.min(MAX_PIXEL_RATIO, typeof devicePixelRatio === 'number' && devicePixelRatio > 0 ? devicePixelRatio : 1);
+    const ratio = Math.min(
+      MAX_PIXEL_RATIO,
+      typeof devicePixelRatio === 'number' && devicePixelRatio > 0 ? devicePixelRatio : 1,
+    );
     const side = Math.max(1, Math.round(Math.max(canvas.width, canvas.height) / ratio));
     return { width: side, height: side, fromLayout: false };
   };
@@ -294,7 +304,7 @@ export const createOrbRenderer: CreateOrbRenderer = (options: OrbRendererOptions
     shellUniforms.uRim.value.copy(current.rim);
     shellUniforms.uPulse.value = pulse;
     shellUniforms.uOpacity.value = 0.85 + 0.15 * current.intensity;
-    shellUniforms.uEdge.value = 0.55 + 0.20 * current.intensity;
+    shellUniforms.uEdge.value = 0.55 + 0.2 * current.intensity;
     orbScene.shell.rotation.set(-spinAngle * 0.09, -spinAngle * 0.2, 0);
     orbScene.shell.scale.setScalar(1 + 0.018 * pulse + 0.06 * burst);
 

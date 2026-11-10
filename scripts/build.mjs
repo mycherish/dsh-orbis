@@ -104,7 +104,11 @@ ${body}
 
   const target = join(root, 'client.js');
   await writeFile(target, wrapped, 'utf8');
-  return { target, bytes: Buffer.byteLength(wrapped), inputs: Object.keys(result.metafile?.inputs ?? {}).length };
+  return {
+    target,
+    bytes: Buffer.byteLength(wrapped),
+    inputs: Object.keys(result.metafile?.inputs ?? {}).length,
+  };
 }
 
 async function main() {

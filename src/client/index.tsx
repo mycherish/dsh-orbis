@@ -61,10 +61,7 @@ const en = {
 };
 
 export function apply(ctx: ClientContextLike): void {
-  ctx.effect(
-    () => ctx.locale.register(NS, { zh, en }),
-    'orbis: dictionaries',
-  );
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'orbis: dictionaries');
   ctx.slots.inject('shell.overlay', () =>
     ctx.slots.register(
       {

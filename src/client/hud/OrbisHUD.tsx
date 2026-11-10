@@ -15,12 +15,7 @@
  *  - `hidden`   — `orb` display mode draws nothing at all.
  */
 import * as React from 'react';
-import {
-  ORBIT_PALETTE,
-  STATE_COLOR,
-  type OrbitConnection,
-  type OrbitSettings,
-} from '../contracts';
+import { ORBIT_PALETTE, STATE_COLOR, type OrbitConnection, type OrbitSettings } from '../contracts';
 import type { OrbitSnapshot } from '../../shared/protocol';
 import { TaskHeader, HudMark } from './TaskHeader';
 import { TaskSummary } from './TaskSummary';
@@ -117,8 +112,7 @@ export function OrbisHUD(props: OrbisHUDProps): React.ReactElement | null {
   const reduce = reduceMotion ? 'true' : 'false';
   const chip = hudChipText(state, connection);
   const title = taskTitleOf(task);
-  const elapsed =
-    task === null ? formatElapsed(0) : runtimePills(task, connection, now).elapsed;
+  const elapsed = task === null ? formatElapsed(0) : runtimePills(task, connection, now).elapsed;
 
   if (autoExpanded === 'hidden') return null;
 
@@ -198,11 +192,7 @@ export function OrbisHUD(props: OrbisHUDProps): React.ReactElement | null {
         />
         <RuntimeInfo task={task} connection={connection} now={now} />
         {settings.showRecentActivity ? <ActivityTimeline task={task} /> : null}
-        <CurrentStatus
-          task={task}
-          state={state}
-          showSilenceAlert={settings.showSilenceAlert}
-        />
+        <CurrentStatus task={task} state={state} showSilenceAlert={settings.showSilenceAlert} />
         <div className="no-hud-foot">
           <StatsIcon />
           {footerStats(task, elapsed)}

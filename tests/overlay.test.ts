@@ -39,7 +39,14 @@ describe('overlay mode: one surface at a time', () => {
   });
 
   it('an active Agent unfolds the panel', () => {
-    for (const state of ['thinking', 'executing', 'responding', 'waiting', 'preparing', 'starting'] as OrbitAgentState[]) {
+    for (const state of [
+      'thinking',
+      'executing',
+      'responding',
+      'waiting',
+      'preparing',
+      'starting',
+    ] as OrbitAgentState[]) {
       expect(overlayModeOf(input({ state }))).toBe('expanded');
     }
   });
@@ -109,8 +116,17 @@ describe('overlay surfaces: never two orbs', () => {
   it('never returns two of anything across the whole input space', () => {
     const modes: OrbitDisplayMode[] = ['auto', 'compact', 'orb'];
     const states: OrbitAgentState[] = [
-      'idle', 'starting', 'thinking', 'preparing', 'executing', 'responding',
-      'waiting', 'quiet', 'completed', 'interrupted', 'error',
+      'idle',
+      'starting',
+      'thinking',
+      'preparing',
+      'executing',
+      'responding',
+      'waiting',
+      'quiet',
+      'completed',
+      'interrupted',
+      'error',
     ];
     let checked = 0;
     for (const displayMode of modes) {
@@ -122,9 +138,19 @@ describe('overlay surfaces: never two orbs', () => {
                 for (const pinned of [true, false]) {
                   for (const visible of [true, false]) {
                     for (const enabled of [true, false]) {
-                      const mode = overlayModeOf(input({
-                        displayMode, state, showHud, showWorkspace, open, collapsed, pinned, visible, enabled,
-                      }));
+                      const mode = overlayModeOf(
+                        input({
+                          displayMode,
+                          state,
+                          showHud,
+                          showWorkspace,
+                          open,
+                          collapsed,
+                          pinned,
+                          visible,
+                          enabled,
+                        }),
+                      );
                       const surfaces = surfacesOf(mode);
                       expect(surfaces.orb).toBeLessThanOrEqual(1);
                       expect(surfaces.hud && surfaces.workspace).toBe(false);
@@ -186,8 +212,10 @@ describe('the saved orb position is rebuilt against the current viewport', () =>
   const maxBottom = viewport.height - LAUNCHER_SIZE - 8;
 
   it('pulls a position saved on a bigger screen back inside', () => {
-    expect(clampLauncherPosition({ right: 2400, bottom: 1400 }, viewport))
-      .toEqual({ right: maxRight, bottom: maxBottom });
+    expect(clampLauncherPosition({ right: 2400, bottom: 1400 }, viewport)).toEqual({
+      right: maxRight,
+      bottom: maxBottom,
+    });
   });
 
   it('leaves a position that already fits untouched', () => {
@@ -195,8 +223,7 @@ describe('the saved orb position is rebuilt against the current viewport', () =>
   });
 
   it('never pushes the orb past the top-left edge', () => {
-    expect(clampLauncherPosition({ right: -400, bottom: -400 }, viewport))
-      .toEqual({ right: 8, bottom: 8 });
+    expect(clampLauncherPosition({ right: -400, bottom: -400 }, viewport)).toEqual({ right: 8, bottom: 8 });
   });
 });
 
@@ -224,7 +251,12 @@ describe('mount chain: single overlay root, single orb', () => {
   });
 
   it('no component renders its own <canvas> any more', () => {
-    for (const file of ['launcher.tsx', 'hud/TaskSummary.tsx', 'workspace/WorkspacePanel.tsx', 'hud/OrbisHUD.tsx']) {
+    for (const file of [
+      'launcher.tsx',
+      'hud/TaskSummary.tsx',
+      'workspace/WorkspacePanel.tsx',
+      'hud/OrbisHUD.tsx',
+    ]) {
       const source = client(file);
       expect(source.includes('<canvas')).toBe(false);
       expect(source.includes('createOrbRenderer')).toBe(false);

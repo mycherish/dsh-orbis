@@ -18,12 +18,7 @@
  * unloads. `foreignRequestRefusal` is the containment check that keeps these two
  * routes from being the one unauthenticated read surface in the process.
  */
-import {
-  EVENTS_ROUTE,
-  HEARTBEAT_MS,
-  STATE_ROUTE,
-  type OrbitFrame,
-} from '../shared/protocol';
+import { EVENTS_ROUTE, HEARTBEAT_MS, STATE_ROUTE, type OrbitFrame } from '../shared/protocol';
 import type { OrbitHub } from './hub';
 
 /** Minimal structural view of the DSH `webServer` service. */
@@ -165,7 +160,7 @@ const CLIENT_STALL_LIMIT = 3;
 const SSE_HEADERS: Record<string, string> = {
   'content-type': 'text/event-stream; charset=utf-8',
   'cache-control': 'no-store, no-transform',
-  'connection': 'keep-alive',
+  connection: 'keep-alive',
   // Belt and braces for any proxying layer that would otherwise buffer.
   'x-accel-buffering': 'no',
 };
@@ -279,52 +274,55 @@ export function registerOrbitRoutes(hub: OrbitHub, webServer: WebServerLike): Ro
         }
       };
 
-      const stream = new ReadableStream<Uint8Array>({
-        start(controller) {
-          streamController = controller;
-          const opening = hub.snapshot(sessionId);
-          client = {
-            sessionId,
-            lastSessionId: opening.sessionId,
-            lastVersion: opening.version,
-            stalled: 0,
-            send(text: string, version?: number): boolean {
-              if (write(text)) return true;
-              pendingFrame = { text, ...(version === undefined ? {} : { version }) };
-              return false;
-            },
-            end() {
-              try {
-                controller.close();
-              } catch {
-                // Already closed.
-              }
-            },
-          };
-          clients.add(client);
-          // One write: the reconnect hint plus the opening snapshot, so a client
-          // never observes a stream that is open but still empty.
-          controller.enqueue(encoder.encode('retry: 3000\n\n'.concat(
-            encodeFrame({ type: 'snapshot', snapshot: opening }),
-          )));
+      const stream = new ReadableStream<Uint8Array>(
+        {
+          start(controller) {
+            streamController = controller;
+            const opening = hub.snapshot(sessionId);
+            client = {
+              sessionId,
+              lastSessionId: opening.sessionId,
+              lastVersion: opening.version,
+              stalled: 0,
+              send(text: string, version?: number): boolean {
+                if (write(text)) return true;
+                pendingFrame = { text, ...(version === undefined ? {} : { version }) };
+                return false;
+              },
+              end() {
+                try {
+                  controller.close();
+                } catch {
+                  // Already closed.
+                }
+              },
+            };
+            clients.add(client);
+            // One write: the reconnect hint plus the opening snapshot, so a client
+            // never observes a stream that is open but still empty.
+            controller.enqueue(
+              encoder.encode('retry: 3000\n\n'.concat(encodeFrame({ type: 'snapshot', snapshot: opening }))),
+            );
+          },
+          async pull(): Promise<void> {
+            const next = pendingFrame;
+            if (next === null) return;
+            pendingFrame = null;
+            if (!write(next.text)) {
+              pendingFrame = next;
+              return;
+            }
+            if (client !== undefined) {
+              if (next.version !== undefined) client.lastVersion = next.version;
+              client.stalled = 0;
+            }
+          },
+          cancel() {
+            if (client !== undefined) clients.delete(client);
+          },
         },
-        async pull(): Promise<void> {
-          const next = pendingFrame;
-          if (next === null) return;
-          pendingFrame = null;
-          if (!write(next.text)) {
-            pendingFrame = next;
-            return;
-          }
-          if (client !== undefined) {
-            if (next.version !== undefined) client.lastVersion = next.version;
-            client.stalled = 0;
-          }
-        },
-        cancel() {
-          if (client !== undefined) clients.delete(client);
-        },
-      }, { highWaterMark: CLIENT_QUEUE_FRAMES });
+        { highWaterMark: CLIENT_QUEUE_FRAMES },
+      );
 
       const detach = (): void => {
         if (client === undefined) return;

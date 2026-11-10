@@ -46,11 +46,7 @@ function TaskSummaryImpl(props: TaskSummaryProps): React.ReactElement {
         {props.reduceMotion ? null : <span className="no-hud-ball-spin" aria-hidden="true" />}
       </div>
       <div className="no-hud-meta">
-        <h2
-          className="no-hud-title"
-          data-fallback={title.fallback ? 'true' : 'false'}
-          title={title.text}
-        >
+        <h2 className="no-hud-title" data-fallback={title.fallback ? 'true' : 'false'} title={title.text}>
           {title.text}
         </h2>
         <p className="no-hud-phase">{phase}</p>

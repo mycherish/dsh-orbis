@@ -12,12 +12,7 @@
 import type { StreamPhase } from './state-machine';
 
 export type StreamSignalKind =
-  | 'attempt-start'
-  | 'reasoning'
-  | 'text'
-  | 'tool-call'
-  | 'finish'
-  | 'attempt-end';
+  'attempt-start' | 'reasoning' | 'text' | 'tool-call' | 'finish' | 'attempt-end';
 
 export interface StreamSignal {
   kind: StreamSignalKind;

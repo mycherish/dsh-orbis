@@ -43,11 +43,7 @@ import {
   settledActivity,
   toolActivity,
 } from './activity/normalizer';
-import {
-  detectSilence,
-  monotonicNow,
-  type SilenceInput,
-} from './context/silence-detector';
+import { detectSilence, monotonicNow, type SilenceInput } from './context/silence-detector';
 import { buildTaskContext, emptyTaskContext } from './context/task-context-engine';
 import { phaseOfSignal, streamSignalOf } from './stream';
 
@@ -374,16 +370,23 @@ export class OrbitHub {
         const callId = asString(recordOf(data, 'callId'));
         const name = asString(recordOf(data, 'name'));
         if (callId === undefined || name === undefined) return;
-        const argumentsJson = typeof recordOf(data, 'arguments') === 'string'
-          ? (recordOf(data, 'arguments') as string)
-          : '';
+        const argumentsJson =
+          typeof recordOf(data, 'arguments') === 'string' ? (recordOf(data, 'arguments') as string) : '';
         const turn = asNumber(recordOf(data, 'turn'));
         const step = asNumber(recordOf(data, 'step'));
         const outcome = record.calls.start({ callId, name, turn, step, at: epoch }, at);
 
         if (outcome.kind === 'duplicate' || outcome.kind === 'already-settled') return;
 
-        const row = toolActivity({ id: callId, sessionId, rawName: name, argumentsJson, at: epoch, turn, step });
+        const row = toolActivity({
+          id: callId,
+          sessionId,
+          rawName: name,
+          argumentsJson,
+          at: epoch,
+          turn,
+          step,
+        });
         record.metrics.tools += 1;
         if (row.fileKind !== undefined) record.metrics.files += 1;
         if (turn !== undefined) record.machine.turn = turn;
@@ -404,9 +407,9 @@ export class OrbitHub {
         // for `approval/decided` (or `turn/end`) to settle.
         for (const activity of record.activities) {
           if (
-            activity.category === 'approval'
-            && activity.status === 'running'
-            && activity.callId === callId
+            activity.category === 'approval' &&
+            activity.status === 'running' &&
+            activity.callId === callId
           ) {
             this.settleRow(record, activity.id, 'success', epoch);
             /*
@@ -481,7 +484,10 @@ export class OrbitHub {
             ...(step === undefined ? {} : { step }),
           };
         } else {
-          this.pushActivity(record, approvalActivity(epoch, approvalId, sessionId, toolName, { turn, step, callId }));
+          this.pushActivity(
+            record,
+            approvalActivity(epoch, approvalId, sessionId, toolName, { turn, step, callId }),
+          );
         }
         // The placeholder's id leaves the blocking set as the real one enters it,
         // so the count of outstanding asks stays honest.
@@ -498,7 +504,11 @@ export class OrbitHub {
         const approvalId = asString(recordOf(data, 'id'));
         const outcome = asString(recordOf(data, 'outcome'));
         this.settleRow(record, approvalId ?? '', this.approvalStatus(outcome), epoch);
-        applyEvent(record.machine, { kind: 'approval-decided', ...(approvalId === undefined ? {} : { id: approvalId }), at });
+        applyEvent(record.machine, {
+          kind: 'approval-decided',
+          ...(approvalId === undefined ? {} : { id: approvalId }),
+          at,
+        });
         this.touch(record, at);
         return;
       }
@@ -644,11 +654,14 @@ export class OrbitHub {
     const at = this.mono();
     const id = callId === undefined ? this.nextId('question') : `question:${callId}`;
     if (!record.activities.some((row) => row.id === id)) {
-      this.pushActivity(record, questionActivity(epoch, id, sessionId, toolName, {
-        callId,
-        ...(record.machine.turn === undefined ? {} : { turn: record.machine.turn }),
-        ...(record.machine.step === undefined ? {} : { step: record.machine.step }),
-      }));
+      this.pushActivity(
+        record,
+        questionActivity(epoch, id, sessionId, toolName, {
+          callId,
+          ...(record.machine.turn === undefined ? {} : { turn: record.machine.turn }),
+          ...(record.machine.step === undefined ? {} : { step: record.machine.step }),
+        }),
+      );
     }
     applyEvent(record.machine, { kind: 'question-asked', id, at });
     this.touch(record, at);
@@ -665,9 +678,10 @@ export class OrbitHub {
     const record = this.records.get(sessionId);
     if (record === undefined) return;
     const at = this.mono();
-    const id = callId === undefined
-      ? record.machine.questionIds[record.machine.questionIds.length - 1]
-      : `question:${callId}`;
+    const id =
+      callId === undefined
+        ? record.machine.questionIds[record.machine.questionIds.length - 1]
+        : `question:${callId}`;
     if (id !== undefined) this.settleRow(record, id, 'success', this.clock());
     applyEvent(record.machine, { kind: 'question-settled', ...(id === undefined ? {} : { id }), at });
     this.touch(record, at);
@@ -778,11 +792,12 @@ export class OrbitHub {
     const at = this.mono();
     /* The Agent is blocked on the human when either ask is outstanding; which one
      * it is changes the wording, never the state. */
-    const waiting = record.machine.approvalIds.length > 0
-      ? 'approval'
-      : record.machine.questionIds.length > 0
-        ? 'question'
-        : undefined;
+    const waiting =
+      record.machine.approvalIds.length > 0
+        ? 'approval'
+        : record.machine.questionIds.length > 0
+          ? 'question'
+          : undefined;
     const silenceInput: SilenceInput = {
       ms: silenceOf(record.machine, at),
       activeTools: record.machine.openTools.length,

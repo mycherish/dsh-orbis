@@ -25,12 +25,7 @@ export function Timeline({ model, stateColor }: TimelineProps): React.ReactEleme
       aria-label={`${LABELS.panel.railAria} · ${model.span}`}
     >
       <span className="no-rail-mid" />
-      {model.empty ? null : (
-        <span
-          className="no-rail-fill"
-          style={cssVars({ width: `${model.headPct}%` })}
-        />
-      )}
+      {model.empty ? null : <span className="no-rail-fill" style={cssVars({ width: `${model.headPct}%` })} />}
       {model.marks.map((mark) => (
         <span
           className="no-rail-mark"

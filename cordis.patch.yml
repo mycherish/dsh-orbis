@@ -9,4 +9,4 @@
 # the routes are missing, and the Host keeps tracking state without a browser.
 - insert:
     - id: orbis
-      name: 'dsh-orbis'
+      name: "dsh-orbis"

@@ -15,13 +15,7 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import {
-  HUD_KEY,
-  LEGACY_SETTINGS_KEY,
-  POSITION_KEY,
-  RENAMED_KEYS,
-  SETTINGS_KEY,
-} from '../src/client/store';
+import { HUD_KEY, LEGACY_SETTINGS_KEY, POSITION_KEY, RENAMED_KEYS, SETTINGS_KEY } from '../src/client/store';
 import { EVENTS_ROUTE, STATE_ROUTE } from '../src/shared/protocol';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -122,9 +116,7 @@ describe('README', () => {
     expect(mentioned.size).toBeGreaterThan(10);
     for (const path of mentioned) {
       const target = path.endsWith('/') ? path.slice(0, -1) : path;
-      expect(existsSync(join(root, target)), `${path} is named in README but does not exist`).toBe(
-        true,
-      );
+      expect(existsSync(join(root, target)), `${path} is named in README but does not exist`).toBe(true);
     }
   });
 });
@@ -134,7 +126,10 @@ describe('bundle patch', () => {
 
   it('inserts the row that loads this package', () => {
     expect(patch).toMatch(/^- insert:/m);
-    const rowName = /^\s*name:\s*'([^']+)'/m.exec(patch)?.[1];
+    // Accept either quote style: this file is hand-written YAML, and Prettier
+    // normalises `'dsh-orbis'` to `"dsh-orbis"`. Quoting is not the contract — the
+    // name being this package is.
+    const rowName = /^\s*name:\s*['"]?([^'"\s]+)['"]?\s*$/m.exec(patch)?.[1];
     expect(rowName).toBe(pkg.name);
     const rowId = /^\s*-\s*id:\s*(\S+)/m.exec(patch)?.[1];
     expect(rowId, 'the inserted row needs an id').toBeTypeOf('string');

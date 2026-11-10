@@ -9,11 +9,7 @@
  * All arithmetic is on monotonic milliseconds; `ms` carries the wall-clock
  * distance only for display.
  */
-import {
-  SILENCE_LEVEL1_MS,
-  SILENCE_LEVEL2_MS,
-  SILENCE_LEVEL3_MS,
-} from '../../shared/protocol';
+import { SILENCE_LEVEL1_MS, SILENCE_LEVEL2_MS, SILENCE_LEVEL3_MS } from '../../shared/protocol';
 import type { OrbitSilence, OrbitSilenceLevel } from '../../shared/task-context-types';
 
 /** Bucket a silence duration (0–30s / 30–60s / 60–180s / >180s). */

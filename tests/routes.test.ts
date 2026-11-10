@@ -42,7 +42,6 @@ async function readFrame(reader: ReadableStreamDefaultReader<Uint8Array>): Promi
   throw new Error('no data frame received');
 }
 
-
 /**
  * A request shaped the way the carrier hands one to a resource.
  *

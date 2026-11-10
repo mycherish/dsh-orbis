@@ -132,7 +132,12 @@ export function inferPhase(input: PhaseInput): PhaseResult {
   }
 
   if (input.responding) {
-    return { phase: 'answering', phaseLabel: PHASE_LABEL.answering, confidence: 'medium', reason: '模型正在输出文本' };
+    return {
+      phase: 'answering',
+      phaseLabel: PHASE_LABEL.answering,
+      confidence: 'medium',
+      reason: '模型正在输出文本',
+    };
   }
 
   if (input.turnOpen) {

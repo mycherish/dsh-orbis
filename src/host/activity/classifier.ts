@@ -152,12 +152,27 @@ const PREFIXES: ReadonlyArray<readonly [string, OrbitToolCategory]> = [
 ];
 
 /** Shell-family tools whose command string may refine the category. */
-const SHELL_TOOLS = new Set(['bash', 'run_command', 'run_code', 'exec', 'execute', 'pwsh', 'powershell', 'terminal_send']);
+const SHELL_TOOLS = new Set([
+  'bash',
+  'run_command',
+  'run_code',
+  'exec',
+  'execute',
+  'pwsh',
+  'powershell',
+  'terminal_send',
+]);
 
 /** Command keywords, most specific first. Only the *category* survives. */
 const COMMAND_RULES: ReadonlyArray<readonly [RegExp, OrbitToolCategory]> = [
-  [/\b(pytest|vitest|jest|mocha|cargo test|go test|npm (run )?test|pnpm (run )?test|yarn test|make test)\b/i, 'test'],
-  [/\b(npm run build|pnpm (run )?build|yarn build|cargo build|go build|make\b|tsc\b|esbuild|webpack|vite build|docker build)\b/i, 'build'],
+  [
+    /\b(pytest|vitest|jest|mocha|cargo test|go test|npm (run )?test|pnpm (run )?test|yarn test|make test)\b/i,
+    'test',
+  ],
+  [
+    /\b(npm run build|pnpm (run )?build|yarn build|cargo build|go build|make\b|tsc\b|esbuild|webpack|vite build|docker build)\b/i,
+    'build',
+  ],
   [/\b(psql|mysql|sqlite3?|redis-cli|mongo(d)?|clickhouse)\b/i, 'database'],
   [/\b(curl|wget|http|xh|fetch)\b/i, 'api'],
   [/\b(git (diff|status|log|show|branch)|gh pr|gh run)\b/i, 'inspection'],
@@ -243,8 +258,14 @@ export function fileKindOfName(rawName: string): OrbitFileKind | undefined {
   const name = normalizeName(rawName);
   if (name === '') return undefined;
   if (name === 'write' || name === 'mkdir' || name === 'create_directory') return 'write';
-  if (name === 'edit' || name === 'apply_patch' || name === 'lsp_rename' || name === 'lsp_format'
-    || name === 'str_replace' || name === 'str_replace_editor') {
+  if (
+    name === 'edit' ||
+    name === 'apply_patch' ||
+    name === 'lsp_rename' ||
+    name === 'lsp_format' ||
+    name === 'str_replace' ||
+    name === 'str_replace_editor'
+  ) {
     return 'edit';
   }
   if (name.startsWith('read') || EXACT[name] === 'file_read') return 'read';

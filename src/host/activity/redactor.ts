@@ -38,7 +38,20 @@ const SENSITIVE_EXACT = new Set([
 ]);
 
 /** Extensions that only ever hold key material or certificates. */
-const SECRET_EXTENSIONS = new Set(['key', 'keys', 'pem', 'p12', 'pfx', 'crt', 'cer', 'keystore', 'jks', 'p8', 'secret', 'secrets']);
+const SECRET_EXTENSIONS = new Set([
+  'key',
+  'keys',
+  'pem',
+  'p12',
+  'pfx',
+  'crt',
+  'cer',
+  'keystore',
+  'jks',
+  'p8',
+  'secret',
+  'secrets',
+]);
 
 /** Words that mark a file as credential-bearing wherever they appear. */
 const STRONG_WORDS = /(credential|password|passwd|api[_-]?key|access[_-]?token|private[_-]?key)/i;
@@ -74,13 +87,18 @@ export function redactPath(value: string): RedactedTarget | undefined {
   const cleaned = value.replace(/[\u0000-\u001f\u007f]/g, '').trim();
   if (cleaned === '') return undefined;
 
-  const segments = cleaned.split(/[\\/]+/).filter((segment) => segment !== '' && segment !== '.' && segment !== '..');
+  const segments = cleaned
+    .split(/[\\/]+/)
+    .filter((segment) => segment !== '' && segment !== '.' && segment !== '..');
   if (segments.length === 0) return undefined;
   const last = segments[segments.length - 1] ?? '';
   // A bare drive letter or separator is not a filename.
   if (/^[a-zA-Z]:$/.test(last)) return undefined;
   // Drop a query/fragment, then only the characters no filesystem allows.
-  const withoutQuery = last.replace(/[?#].*$/, '').replace(/[<>"|:]/g, '').trim();
+  const withoutQuery = last
+    .replace(/[?#].*$/, '')
+    .replace(/[<>"|:]/g, '')
+    .trim();
   if (withoutQuery === '' || withoutQuery === '~') return undefined;
 
   if (isSensitiveName(withoutQuery)) return { value: SENSITIVE_TARGET_LABEL, redacted: true };
@@ -175,7 +193,9 @@ const ABSOLUTE_PATH_TOKEN =
 export function redactInlinePaths(value: string): string {
   if (typeof value !== 'string' || value === '') return '';
   return value.replace(ABSOLUTE_PATH_TOKEN, (token) => {
-    const segments = token.split(/[\\/]+/).filter((segment) => segment !== '' && segment !== '.' && segment !== '..');
+    const segments = token
+      .split(/[\\/]+/)
+      .filter((segment) => segment !== '' && segment !== '.' && segment !== '..');
     if (segments.length < 2) return token;
     const target = redactPath(token);
     return target === undefined ? token : target.value;

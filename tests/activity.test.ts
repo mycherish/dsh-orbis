@@ -38,10 +38,18 @@ describe('activity classifier', () => {
 
   it('refines a shell call by what it actually runs', () => {
     expect(classify({ name: 'bash', argumentsJson: '{"command":"pnpm vitest run"}' }).category).toBe('test');
-    expect(classify({ name: 'bash', argumentsJson: '{"command":"cargo build --release"}' }).category).toBe('build');
-    expect(classify({ name: 'bash', argumentsJson: '{"command":"curl -s localhost:8080/health"}' }).category).toBe('api');
-    expect(classify({ name: 'bash', argumentsJson: '{"command":"psql -c \\"select 1\\""}' }).category).toBe('database');
-    expect(classify({ name: 'bash', argumentsJson: '{"command":"git diff HEAD"}' }).category).toBe('inspection');
+    expect(classify({ name: 'bash', argumentsJson: '{"command":"cargo build --release"}' }).category).toBe(
+      'build',
+    );
+    expect(
+      classify({ name: 'bash', argumentsJson: '{"command":"curl -s localhost:8080/health"}' }).category,
+    ).toBe('api');
+    expect(classify({ name: 'bash', argumentsJson: '{"command":"psql -c \\"select 1\\""}' }).category).toBe(
+      'database',
+    );
+    expect(classify({ name: 'bash', argumentsJson: '{"command":"git diff HEAD"}' }).category).toBe(
+      'inspection',
+    );
     expect(classify({ name: 'bash', argumentsJson: '{"command":"echo hi"}' }).category).toBe('command');
   });
 
@@ -89,7 +97,15 @@ describe('redaction', () => {
   });
 
   it('masks secret-bearing filenames entirely', () => {
-    for (const name of ['.env', '.env.production', 'server.key', 'cert.pem', 'id_rsa', 'credentials.json', 'app.secret']) {
+    for (const name of [
+      '.env',
+      '.env.production',
+      'server.key',
+      'cert.pem',
+      'id_rsa',
+      'credentials.json',
+      'app.secret',
+    ]) {
       expect(isSensitiveName(name)).toBe(true);
     }
     const masked = redactPath('/Users/alice/app/.env.local');
@@ -266,8 +282,9 @@ describe('activity rows', () => {
    * 「读取敏感配置文件」 — truthfully boring, and useless for deciding anything.
    */
   it('shows a tool name as a name, and only treats path-shaped ones as paths', () => {
-    expect(approvalActivity(at, 'a1', sessionId, 'mcp__vault__read_credential').safeTarget)
-      .toBe('mcp__vault__read_credential');
+    expect(approvalActivity(at, 'a1', sessionId, 'mcp__vault__read_credential').safeTarget).toBe(
+      'mcp__vault__read_credential',
+    );
     expect(approvalActivity(at, 'a2', sessionId, 'bash').safeTarget).toBe('bash');
     // A name that really is a path still collapses to its basename.
     expect(approvalActivity(at, 'a3', sessionId, '/usr/local/bin/bash').safeTarget).toBe('bash');

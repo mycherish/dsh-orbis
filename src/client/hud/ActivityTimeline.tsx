@@ -26,11 +26,7 @@ export interface ActivityTimelineProps {
 function BoltIcon(): React.ReactElement {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path
-        d="M9.1 1.8 4.3 8.9h2.9l-.9 5.3 4.9-7.2H8.3l.8-5.2Z"
-        fill="currentColor"
-        opacity="0.92"
-      />
+      <path d="M9.1 1.8 4.3 8.9h2.9l-.9 5.3 4.9-7.2H8.3l.8-5.2Z" fill="currentColor" opacity="0.92" />
     </svg>
   );
 }
@@ -52,11 +48,7 @@ export function ActivityTimeline(props: ActivityTimelineProps): React.ReactEleme
             const text = activityText(row);
             const accent = activityColor(row.category, row.status);
             return (
-              <li
-                key={row.id}
-                className="no-hud-row"
-                style={cssVars({ '--no-hud-row': accent })}
-              >
+              <li key={row.id} className="no-hud-row" style={cssVars({ '--no-hud-row': accent })}>
                 <span className="no-hud-row-icon" aria-hidden="true">
                   {activityIcon(row.status)}
                 </span>

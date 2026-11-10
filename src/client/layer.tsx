@@ -12,7 +12,13 @@
  * the overlay renders one small affordance that turns it back on.
  */
 import * as React from 'react';
-import { LAUNCHER_SIZE, ORBIT_PALETTE, type OrbQuality, type OrbitSettings, type OrbVisualState } from './contracts';
+import {
+  LAUNCHER_SIZE,
+  ORBIT_PALETTE,
+  type OrbQuality,
+  type OrbitSettings,
+  type OrbVisualState,
+} from './contracts';
 import { createOrbRenderer } from './orb';
 import { createOrbOwner } from './orb-owner';
 import { overlayModeOf, showsRestoreDot, surfacesOf } from './overlay';
@@ -41,7 +47,11 @@ const FPS_SAMPLE_MS = 1000;
 
 /** The surfaces that can host the one canvas, widest first. */
 type OrbSlotKey = 'workspace' | 'hud' | 'launcher';
-const EMPTY_ORB_SLOTS: Record<OrbSlotKey, HTMLElement | null> = { workspace: null, hud: null, launcher: null };
+const EMPTY_ORB_SLOTS: Record<OrbSlotKey, HTMLElement | null> = {
+  workspace: null,
+  hud: null,
+  launcher: null,
+};
 
 /** Remember the last Session the main column displayed. */
 let lastSessionId: string | undefined;
@@ -136,9 +146,12 @@ function useOrbOwner(
     return () => window.removeEventListener('resize', onResize);
   }, [owner]);
 
-  React.useEffect(() => () => {
-    ownerRef.current?.detach();
-  }, []);
+  React.useEffect(
+    () => () => {
+      ownerRef.current?.detach();
+    },
+    [],
+  );
 
   const resize = React.useCallback(() => owner.resize(), [owner]);
 

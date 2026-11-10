@@ -30,7 +30,13 @@ function ClockIcon(): React.ReactElement {
 function DiamondIcon(): React.ReactElement {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path d="M8 2.4 13.6 8 8 13.6 2.4 8 8 2.4Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+      <path
+        d="M8 2.4 13.6 8 8 13.6 2.4 8 8 2.4Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
       <circle cx="8" cy="8" r="1.5" fill="currentColor" />
     </svg>
   );

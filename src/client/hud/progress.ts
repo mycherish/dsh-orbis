@@ -15,11 +15,7 @@
  *  - `runtimePills().mode` is the constant 「纯事件模式 · 0 额外 Token」: this
  *    plugin never calls a model, and the copy must not drift from that fact.
  */
-import {
-  ORBIT_PALETTE,
-  type OrbitConnection,
-  type OrbitDisplayMode,
-} from '../contracts';
+import { ORBIT_PALETTE, type OrbitConnection, type OrbitDisplayMode } from '../contracts';
 import type {
   OrbitActivity,
   OrbitAgentState,
@@ -146,10 +142,7 @@ export function activityStatusLabel(status: OrbitActivityStatus): string {
  * "model is thinking" families, then the success/running split, and only then
  * the neutral dim.
  */
-export function activityColor(
-  category: OrbitToolCategory,
-  status: OrbitActivityStatus,
-): string {
+export function activityColor(category: OrbitToolCategory, status: OrbitActivityStatus): string {
   if (status === 'failed') return P.error;
   if (status === 'cancelled') return P.labelDim;
   if (category === 'approval') return P.warning;
@@ -167,7 +160,7 @@ export function activityColor(
 export function activityText(activity: OrbitActivity): string {
   if (activity.redacted === true) return SENSITIVE_TARGET_LABEL;
   const raw = typeof activity.label === 'string' ? activity.label.trim() : '';
-  const label = raw === '' ? CATEGORY_LABEL[activity.category] ?? CATEGORY_LABEL.unknown : raw;
+  const label = raw === '' ? (CATEGORY_LABEL[activity.category] ?? CATEGORY_LABEL.unknown) : raw;
   const target = typeof activity.safeTarget === 'string' ? activity.safeTarget.trim() : '';
   return target === '' ? label : `${label} · ${target}`;
 }
@@ -266,10 +259,7 @@ export const STATUS_SENTENCE: Record<OrbitAgentState, string> = {
  * telling someone to approve an approval that is really a question is exactly
  * the kind of confident-but-wrong line this HUD must never print.
  */
-export function statusSentence(
-  state: OrbitAgentState,
-  waitingReason?: 'approval' | 'question',
-): string {
+export function statusSentence(state: OrbitAgentState, waitingReason?: 'approval' | 'question'): string {
   if (state === 'waiting' && waitingReason === 'question') return '正在等待你回答问题。';
   return STATUS_SENTENCE[state] ?? STATUS_SENTENCE.idle;
 }
@@ -286,7 +276,7 @@ export function taskTitleOf(task: OrbitTaskContext | null): { text: string; fall
 export function phaseTextOf(task: OrbitTaskContext | null, state: OrbitAgentState): string {
   if (task === null) return isActiveState(state) ? '正在接收任务' : '等待任务';
   const raw = typeof task.phaseLabel === 'string' ? task.phaseLabel.trim() : '';
-  return raw === '' ? PHASE_LABEL[task.phase] ?? PHASE_LABEL.idle : raw;
+  return raw === '' ? (PHASE_LABEL[task.phase] ?? PHASE_LABEL.idle) : raw;
 }
 
 /** True when the Host actually published a plan step (never predicted). */
@@ -297,10 +287,7 @@ export function nextStepLabel(task: OrbitTaskContext | null): string | undefined
 }
 
 /** Silence is only surfaced when it is real *and* the user kept the switch on. */
-export function shouldShowSilence(
-  task: OrbitTaskContext | null,
-  showSilenceAlert: boolean = true,
-): boolean {
+export function shouldShowSilence(task: OrbitTaskContext | null, showSilenceAlert: boolean = true): boolean {
   if (task === null || showSilenceAlert !== true) return false;
   const level = task.silence?.level;
   return typeof level === 'number' && level >= 1;
@@ -337,9 +324,7 @@ export function currentStatusText(
 export function footerStats(task: OrbitTaskContext | null, elapsed: string): string {
   if (task === null) return '尚未收到任务事件';
   const observed = Math.max(0, Math.round(task.observedActivityCount));
-  const parts: string[] = [
-    observed === 0 ? '尚未观察到活动' : `已观察到 ${observed} 项活动`,
-  ];
+  const parts: string[] = [observed === 0 ? '尚未观察到活动' : `已观察到 ${observed} 项活动`];
   const tools = Math.max(0, Math.round(task.toolCallCount));
   if (tools > 0) parts.push(`工具 ${tools} 次`);
   parts.push(`运行 ${elapsed}`);

@@ -53,7 +53,9 @@
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "verify": "node scripts/build.mjs && tsc --noEmit -p tsconfig.json && vitest run"
+    "verify": "node scripts/build.mjs && tsc --noEmit -p tsconfig.json && vitest run && prettier --check \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\" \"scripts/**/*.mjs\" \"package.json\" \"cordis.patch.yml\" \".github/**/*.yml\"",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\" \"scripts/**/*.mjs\" \"package.json\" \"cordis.patch.yml\" \".github/**/*.yml\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\" \"scripts/**/*.mjs\" \"package.json\" \"cordis.patch.yml\" \".github/**/*.yml\""
   },
   "dsh": {
     "bundle": {
@@ -79,6 +81,7 @@
     "@types/three": "^0.187.0",
     "esbuild": "^0.28.2",
     "jsdom": "^31.0.0",
+    "prettier": "^3.9.10",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "three": "^0.187.0",

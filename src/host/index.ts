@@ -178,107 +178,175 @@ export function apply(ctx: HostContextLike): void {
     }
   };
 
-  ctx.effect(() => ctx.on('session/event', (session, event) => {
-    try {
-      const sessionId = idOf(session);
-      if (sessionId === undefined) return;
-      hub.handleSessionEvent(sessionId, event);
-      seedTitle(session, sessionId);
-    } catch (error) {
-      report('session event normalization', error);
-    }
-  }, GLOBAL), 'orbis: session events');
+  ctx.effect(
+    () =>
+      ctx.on(
+        'session/event',
+        (session, event) => {
+          try {
+            const sessionId = idOf(session);
+            if (sessionId === undefined) return;
+            hub.handleSessionEvent(sessionId, event);
+            seedTitle(session, sessionId);
+          } catch (error) {
+            report('session event normalization', error);
+          }
+        },
+        GLOBAL,
+      ),
+    'orbis: session events',
+  );
 
-  ctx.effect(() => ctx.on('agent/status', (payload) => {
-    try {
-      const sessionId = sessionIdOf(payload?.agent);
-      if (sessionId === undefined) return;
-      hub.handleStatus(sessionId, payload.status);
-    } catch (error) {
-      report('agent status', error);
-    }
-  }, GLOBAL), 'orbis: agent status');
+  ctx.effect(
+    () =>
+      ctx.on(
+        'agent/status',
+        (payload) => {
+          try {
+            const sessionId = sessionIdOf(payload?.agent);
+            if (sessionId === undefined) return;
+            hub.handleStatus(sessionId, payload.status);
+          } catch (error) {
+            report('agent status', error);
+          }
+        },
+        GLOBAL,
+      ),
+    'orbis: agent status',
+  );
 
-  ctx.effect(() => ctx.on('agent/turn-stopping', (payload) => {
-    try {
-      const sessionId = sessionIdOf(payload?.agent);
-      if (sessionId === undefined) return;
-      hub.handleTurnStopping(sessionId);
-    } catch (error) {
-      report('turn stopping', error);
-    }
-  }, GLOBAL), 'orbis: turn stopping');
+  ctx.effect(
+    () =>
+      ctx.on(
+        'agent/turn-stopping',
+        (payload) => {
+          try {
+            const sessionId = sessionIdOf(payload?.agent);
+            if (sessionId === undefined) return;
+            hub.handleTurnStopping(sessionId);
+          } catch (error) {
+            report('turn stopping', error);
+          }
+        },
+        GLOBAL,
+      ),
+    'orbis: turn stopping',
+  );
 
-  ctx.effect(() => ctx.on('agent/error', (payload) => {
-    try {
-      const sessionId = sessionIdOf(payload?.agent);
-      if (sessionId === undefined) return;
-      hub.handleError(sessionId, codeOf(payload.error));
-    } catch (error) {
-      report('agent error', error);
-    }
-  }, GLOBAL), 'orbis: agent error');
+  ctx.effect(
+    () =>
+      ctx.on(
+        'agent/error',
+        (payload) => {
+          try {
+            const sessionId = sessionIdOf(payload?.agent);
+            if (sessionId === undefined) return;
+            hub.handleError(sessionId, codeOf(payload.error));
+          } catch (error) {
+            report('agent error', error);
+          }
+        },
+        GLOBAL,
+      ),
+    'orbis: agent error',
+  );
 
-  ctx.effect(() => ctx.on('agent/disposed', (payload) => {
-    try {
-      const sessionId = sessionIdOf(payload?.agent);
-      if (sessionId === undefined) return;
-      hub.handleDisposed(sessionId);
-    } catch (error) {
-      report('agent disposed', error);
-    }
-  }, GLOBAL), 'orbis: agent disposed');
+  ctx.effect(
+    () =>
+      ctx.on(
+        'agent/disposed',
+        (payload) => {
+          try {
+            const sessionId = sessionIdOf(payload?.agent);
+            if (sessionId === undefined) return;
+            hub.handleDisposed(sessionId);
+          } catch (error) {
+            report('agent disposed', error);
+          }
+        },
+        GLOBAL,
+      ),
+    'orbis: agent disposed',
+  );
 
   // Transient model frames: the only real-time signal available, and the only
   // place the plugin can see "thinking" versus "answering" while it happens.
   // Only the frame's type tags are read (see `host/stream.ts`).
-  ctx.effect(() => ctx.on('agent/assistant-stream', (payload) => {
-    try {
-      const sessionId = sessionIdOf(payload?.agent);
-      if (sessionId === undefined) return;
-      hub.handleStream(sessionId, payload.frame);
-    } catch (error) {
-      report('assistant stream', error);
-    }
-  }, GLOBAL), 'orbis: assistant stream');
+  ctx.effect(
+    () =>
+      ctx.on(
+        'agent/assistant-stream',
+        (payload) => {
+          try {
+            const sessionId = sessionIdOf(payload?.agent);
+            if (sessionId === undefined) return;
+            hub.handleStream(sessionId, payload.frame);
+          } catch (error) {
+            report('assistant stream', error);
+          }
+        },
+        GLOBAL,
+      ),
+    'orbis: assistant stream',
+  );
 
   // Waterfall: observe the ask, then always delegate the decision.
-  ctx.effect(() => ctx.on('approval/request', (request, next) => {
-    try {
-      const sessionId = sessionIdOf(request?.agent);
-      if (sessionId !== undefined) hub.handleApproval(sessionId, request.toolName, request.callId);
-    } catch (error) {
-      report('approval observation', error);
-    }
-    return next();
-  }, GLOBAL), 'orbis: approvals');
+  ctx.effect(
+    () =>
+      ctx.on(
+        'approval/request',
+        (request, next) => {
+          try {
+            const sessionId = sessionIdOf(request?.agent);
+            if (sessionId !== undefined) hub.handleApproval(sessionId, request.toolName, request.callId);
+          } catch (error) {
+            report('approval observation', error);
+          }
+          return next();
+        },
+        GLOBAL,
+      ),
+    'orbis: approvals',
+  );
 
   // Waterfall: observe the ask, then always delegate the decision. The questions
   // themselves are content and are never read — only the Agent and the call id.
   // Settling is observed on the same promise the pipeline awaits, so a cancelled
   // or rejected ask stops reporting a block too.
-  ctx.effect(() => ctx.on('user-questions/request', (request, next) => {
-    let sessionId: string | undefined;
-    try {
-      sessionId = sessionIdOf(request?.agent);
-      if (sessionId !== undefined) {
-        hub.handleQuestion(sessionId, typeof request.toolName === 'string' ? request.toolName : undefined, idOf(request.callId));
-      }
-    } catch (error) {
-      report('question observation', error);
-    }
-    const pending = next();
-    const released = (): void => {
-      if (sessionId === undefined) return;
-      try {
-        hub.handleQuestionSettled(sessionId);
-      } catch (error) {
-        report('question release', error);
-      }
-    };
-    void Promise.resolve(pending).then(released, released);
-    return pending;
-  }, GLOBAL), 'orbis: user questions');
+  ctx.effect(
+    () =>
+      ctx.on(
+        'user-questions/request',
+        (request, next) => {
+          let sessionId: string | undefined;
+          try {
+            sessionId = sessionIdOf(request?.agent);
+            if (sessionId !== undefined) {
+              hub.handleQuestion(
+                sessionId,
+                typeof request.toolName === 'string' ? request.toolName : undefined,
+                idOf(request.callId),
+              );
+            }
+          } catch (error) {
+            report('question observation', error);
+          }
+          const pending = next();
+          const released = (): void => {
+            if (sessionId === undefined) return;
+            try {
+              hub.handleQuestionSettled(sessionId);
+            } catch (error) {
+              report('question release', error);
+            }
+          };
+          void Promise.resolve(pending).then(released, released);
+          return pending;
+        },
+        GLOBAL,
+      ),
+    'orbis: user questions',
+  );
 
   /**
    * The web carrier may activate after this row. Registration is retried from
@@ -322,9 +390,12 @@ export function apply(ctx: HostContextLike): void {
     };
   }, 'orbis: ticker and routes');
 
-  ctx.effect(() => () => {
-    hub.dispose();
-  }, 'orbis: hub teardown');
+  ctx.effect(
+    () => () => {
+      hub.dispose();
+    },
+    'orbis: hub teardown',
+  );
 }
 
 /** Diagnostics for the Plugin Manager detail page and for `dsh doctor`-style checks. */

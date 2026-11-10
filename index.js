@@ -481,10 +481,25 @@ var PREFIXES = [
   ["schedule_", "reasoning"],
   ["skill", "search"]
 ];
-var SHELL_TOOLS = /* @__PURE__ */ new Set(["bash", "run_command", "run_code", "exec", "execute", "pwsh", "powershell", "terminal_send"]);
+var SHELL_TOOLS = /* @__PURE__ */ new Set([
+  "bash",
+  "run_command",
+  "run_code",
+  "exec",
+  "execute",
+  "pwsh",
+  "powershell",
+  "terminal_send"
+]);
 var COMMAND_RULES = [
-  [/\b(pytest|vitest|jest|mocha|cargo test|go test|npm (run )?test|pnpm (run )?test|yarn test|make test)\b/i, "test"],
-  [/\b(npm run build|pnpm (run )?build|yarn build|cargo build|go build|make\b|tsc\b|esbuild|webpack|vite build|docker build)\b/i, "build"],
+  [
+    /\b(pytest|vitest|jest|mocha|cargo test|go test|npm (run )?test|pnpm (run )?test|yarn test|make test)\b/i,
+    "test"
+  ],
+  [
+    /\b(npm run build|pnpm (run )?build|yarn build|cargo build|go build|make\b|tsc\b|esbuild|webpack|vite build|docker build)\b/i,
+    "build"
+  ],
   [/\b(psql|mysql|sqlite3?|redis-cli|mongo(d)?|clickhouse)\b/i, "database"],
   [/\b(curl|wget|http|xh|fetch)\b/i, "api"],
   [/\b(git (diff|status|log|show|branch)|gh pr|gh run)\b/i, "inspection"],
@@ -588,7 +603,20 @@ var SENSITIVE_EXACT = /* @__PURE__ */ new Set([
   ".git-credentials",
   ".htpasswd"
 ]);
-var SECRET_EXTENSIONS = /* @__PURE__ */ new Set(["key", "keys", "pem", "p12", "pfx", "crt", "cer", "keystore", "jks", "p8", "secret", "secrets"]);
+var SECRET_EXTENSIONS = /* @__PURE__ */ new Set([
+  "key",
+  "keys",
+  "pem",
+  "p12",
+  "pfx",
+  "crt",
+  "cer",
+  "keystore",
+  "jks",
+  "p8",
+  "secret",
+  "secrets"
+]);
 var STRONG_WORDS = /(credential|password|passwd|api[_-]?key|access[_-]?token|private[_-]?key)/i;
 function isSensitiveName(basename) {
   const name2 = basename.trim().toLowerCase();
@@ -859,7 +887,12 @@ function inferPhase(input) {
     };
   }
   if (input.responding) {
-    return { phase: "answering", phaseLabel: PHASE_LABEL.answering, confidence: "medium", reason: "\u6A21\u578B\u6B63\u5728\u8F93\u51FA\u6587\u672C" };
+    return {
+      phase: "answering",
+      phaseLabel: PHASE_LABEL.answering,
+      confidence: "medium",
+      reason: "\u6A21\u578B\u6B63\u5728\u8F93\u51FA\u6587\u672C"
+    };
   }
   if (input.turnOpen) {
     return {
@@ -1228,7 +1261,15 @@ var OrbitHub = class {
         const step = asNumber2(recordOf(data, "step"));
         const outcome = record.calls.start({ callId, name: name2, turn, step, at: epoch }, at);
         if (outcome.kind === "duplicate" || outcome.kind === "already-settled") return;
-        const row = toolActivity({ id: callId, sessionId, rawName: name2, argumentsJson, at: epoch, turn, step });
+        const row = toolActivity({
+          id: callId,
+          sessionId,
+          rawName: name2,
+          argumentsJson,
+          at: epoch,
+          turn,
+          step
+        });
         record.metrics.tools += 1;
         if (row.fileKind !== void 0) record.metrics.files += 1;
         if (turn !== void 0) record.machine.turn = turn;
@@ -1294,7 +1335,10 @@ var OrbitHub = class {
             ...step === void 0 ? {} : { step }
           };
         } else {
-          this.pushActivity(record, approvalActivity(epoch, approvalId, sessionId, toolName, { turn, step, callId }));
+          this.pushActivity(
+            record,
+            approvalActivity(epoch, approvalId, sessionId, toolName, { turn, step, callId })
+          );
         }
         if (adopted !== void 0) {
           applyEvent(record.machine, { kind: "approval-decided", id: adopted.id, at });
@@ -1308,7 +1352,11 @@ var OrbitHub = class {
         const approvalId = asString(recordOf(data, "id"));
         const outcome = asString(recordOf(data, "outcome"));
         this.settleRow(record, approvalId ?? "", this.approvalStatus(outcome), epoch);
-        applyEvent(record.machine, { kind: "approval-decided", ...approvalId === void 0 ? {} : { id: approvalId }, at });
+        applyEvent(record.machine, {
+          kind: "approval-decided",
+          ...approvalId === void 0 ? {} : { id: approvalId },
+          at
+        });
         this.touch(record, at);
         return;
       }
@@ -1438,11 +1486,14 @@ var OrbitHub = class {
     const at = this.mono();
     const id = callId === void 0 ? this.nextId("question") : `question:${callId}`;
     if (!record.activities.some((row) => row.id === id)) {
-      this.pushActivity(record, questionActivity(epoch, id, sessionId, toolName, {
-        callId,
-        ...record.machine.turn === void 0 ? {} : { turn: record.machine.turn },
-        ...record.machine.step === void 0 ? {} : { step: record.machine.step }
-      }));
+      this.pushActivity(
+        record,
+        questionActivity(epoch, id, sessionId, toolName, {
+          callId,
+          ...record.machine.turn === void 0 ? {} : { turn: record.machine.turn },
+          ...record.machine.step === void 0 ? {} : { step: record.machine.step }
+        })
+      );
     }
     applyEvent(record.machine, { kind: "question-asked", id, at });
     this.touch(record, at);
@@ -1663,7 +1714,7 @@ var CLIENT_STALL_LIMIT = 3;
 var SSE_HEADERS = {
   "content-type": "text/event-stream; charset=utf-8",
   "cache-control": "no-store, no-transform",
-  "connection": "keep-alive",
+  connection: "keep-alive",
   // Belt and braces for any proxying layer that would otherwise buffer.
   "x-accel-buffering": "no"
 };
@@ -1736,49 +1787,52 @@ function registerOrbitRoutes(hub, webServer) {
           return false;
         }
       };
-      const stream = new ReadableStream({
-        start(controller) {
-          streamController = controller;
-          const opening = hub.snapshot(sessionId);
-          client = {
-            sessionId,
-            lastSessionId: opening.sessionId,
-            lastVersion: opening.version,
-            stalled: 0,
-            send(text, version) {
-              if (write(text)) return true;
-              pendingFrame = { text, ...version === void 0 ? {} : { version } };
-              return false;
-            },
-            end() {
-              try {
-                controller.close();
-              } catch {
+      const stream = new ReadableStream(
+        {
+          start(controller) {
+            streamController = controller;
+            const opening = hub.snapshot(sessionId);
+            client = {
+              sessionId,
+              lastSessionId: opening.sessionId,
+              lastVersion: opening.version,
+              stalled: 0,
+              send(text, version) {
+                if (write(text)) return true;
+                pendingFrame = { text, ...version === void 0 ? {} : { version } };
+                return false;
+              },
+              end() {
+                try {
+                  controller.close();
+                } catch {
+                }
               }
+            };
+            clients.add(client);
+            controller.enqueue(
+              encoder.encode("retry: 3000\n\n".concat(encodeFrame({ type: "snapshot", snapshot: opening })))
+            );
+          },
+          async pull() {
+            const next = pendingFrame;
+            if (next === null) return;
+            pendingFrame = null;
+            if (!write(next.text)) {
+              pendingFrame = next;
+              return;
             }
-          };
-          clients.add(client);
-          controller.enqueue(encoder.encode("retry: 3000\n\n".concat(
-            encodeFrame({ type: "snapshot", snapshot: opening })
-          )));
-        },
-        async pull() {
-          const next = pendingFrame;
-          if (next === null) return;
-          pendingFrame = null;
-          if (!write(next.text)) {
-            pendingFrame = next;
-            return;
-          }
-          if (client !== void 0) {
-            if (next.version !== void 0) client.lastVersion = next.version;
-            client.stalled = 0;
+            if (client !== void 0) {
+              if (next.version !== void 0) client.lastVersion = next.version;
+              client.stalled = 0;
+            }
+          },
+          cancel() {
+            if (client !== void 0) clients.delete(client);
           }
         },
-        cancel() {
-          if (client !== void 0) clients.delete(client);
-        }
-      }, { highWaterMark: CLIENT_QUEUE_FRAMES });
+        { highWaterMark: CLIENT_QUEUE_FRAMES }
+      );
       const detach = () => {
         if (client === void 0) return;
         clients.delete(client);
@@ -1866,92 +1920,152 @@ function apply(ctx) {
       report("session title read", error);
     }
   };
-  ctx.effect(() => ctx.on("session/event", (session, event) => {
-    try {
-      const sessionId = idOf(session);
-      if (sessionId === void 0) return;
-      hub.handleSessionEvent(sessionId, event);
-      seedTitle(session, sessionId);
-    } catch (error) {
-      report("session event normalization", error);
-    }
-  }, GLOBAL), "orbis: session events");
-  ctx.effect(() => ctx.on("agent/status", (payload) => {
-    try {
-      const sessionId = sessionIdOf(payload?.agent);
-      if (sessionId === void 0) return;
-      hub.handleStatus(sessionId, payload.status);
-    } catch (error) {
-      report("agent status", error);
-    }
-  }, GLOBAL), "orbis: agent status");
-  ctx.effect(() => ctx.on("agent/turn-stopping", (payload) => {
-    try {
-      const sessionId = sessionIdOf(payload?.agent);
-      if (sessionId === void 0) return;
-      hub.handleTurnStopping(sessionId);
-    } catch (error) {
-      report("turn stopping", error);
-    }
-  }, GLOBAL), "orbis: turn stopping");
-  ctx.effect(() => ctx.on("agent/error", (payload) => {
-    try {
-      const sessionId = sessionIdOf(payload?.agent);
-      if (sessionId === void 0) return;
-      hub.handleError(sessionId, codeOf(payload.error));
-    } catch (error) {
-      report("agent error", error);
-    }
-  }, GLOBAL), "orbis: agent error");
-  ctx.effect(() => ctx.on("agent/disposed", (payload) => {
-    try {
-      const sessionId = sessionIdOf(payload?.agent);
-      if (sessionId === void 0) return;
-      hub.handleDisposed(sessionId);
-    } catch (error) {
-      report("agent disposed", error);
-    }
-  }, GLOBAL), "orbis: agent disposed");
-  ctx.effect(() => ctx.on("agent/assistant-stream", (payload) => {
-    try {
-      const sessionId = sessionIdOf(payload?.agent);
-      if (sessionId === void 0) return;
-      hub.handleStream(sessionId, payload.frame);
-    } catch (error) {
-      report("assistant stream", error);
-    }
-  }, GLOBAL), "orbis: assistant stream");
-  ctx.effect(() => ctx.on("approval/request", (request, next) => {
-    try {
-      const sessionId = sessionIdOf(request?.agent);
-      if (sessionId !== void 0) hub.handleApproval(sessionId, request.toolName, request.callId);
-    } catch (error) {
-      report("approval observation", error);
-    }
-    return next();
-  }, GLOBAL), "orbis: approvals");
-  ctx.effect(() => ctx.on("user-questions/request", (request, next) => {
-    let sessionId;
-    try {
-      sessionId = sessionIdOf(request?.agent);
-      if (sessionId !== void 0) {
-        hub.handleQuestion(sessionId, typeof request.toolName === "string" ? request.toolName : void 0, idOf(request.callId));
-      }
-    } catch (error) {
-      report("question observation", error);
-    }
-    const pending = next();
-    const released = () => {
-      if (sessionId === void 0) return;
-      try {
-        hub.handleQuestionSettled(sessionId);
-      } catch (error) {
-        report("question release", error);
-      }
-    };
-    void Promise.resolve(pending).then(released, released);
-    return pending;
-  }, GLOBAL), "orbis: user questions");
+  ctx.effect(
+    () => ctx.on(
+      "session/event",
+      (session, event) => {
+        try {
+          const sessionId = idOf(session);
+          if (sessionId === void 0) return;
+          hub.handleSessionEvent(sessionId, event);
+          seedTitle(session, sessionId);
+        } catch (error) {
+          report("session event normalization", error);
+        }
+      },
+      GLOBAL
+    ),
+    "orbis: session events"
+  );
+  ctx.effect(
+    () => ctx.on(
+      "agent/status",
+      (payload) => {
+        try {
+          const sessionId = sessionIdOf(payload?.agent);
+          if (sessionId === void 0) return;
+          hub.handleStatus(sessionId, payload.status);
+        } catch (error) {
+          report("agent status", error);
+        }
+      },
+      GLOBAL
+    ),
+    "orbis: agent status"
+  );
+  ctx.effect(
+    () => ctx.on(
+      "agent/turn-stopping",
+      (payload) => {
+        try {
+          const sessionId = sessionIdOf(payload?.agent);
+          if (sessionId === void 0) return;
+          hub.handleTurnStopping(sessionId);
+        } catch (error) {
+          report("turn stopping", error);
+        }
+      },
+      GLOBAL
+    ),
+    "orbis: turn stopping"
+  );
+  ctx.effect(
+    () => ctx.on(
+      "agent/error",
+      (payload) => {
+        try {
+          const sessionId = sessionIdOf(payload?.agent);
+          if (sessionId === void 0) return;
+          hub.handleError(sessionId, codeOf(payload.error));
+        } catch (error) {
+          report("agent error", error);
+        }
+      },
+      GLOBAL
+    ),
+    "orbis: agent error"
+  );
+  ctx.effect(
+    () => ctx.on(
+      "agent/disposed",
+      (payload) => {
+        try {
+          const sessionId = sessionIdOf(payload?.agent);
+          if (sessionId === void 0) return;
+          hub.handleDisposed(sessionId);
+        } catch (error) {
+          report("agent disposed", error);
+        }
+      },
+      GLOBAL
+    ),
+    "orbis: agent disposed"
+  );
+  ctx.effect(
+    () => ctx.on(
+      "agent/assistant-stream",
+      (payload) => {
+        try {
+          const sessionId = sessionIdOf(payload?.agent);
+          if (sessionId === void 0) return;
+          hub.handleStream(sessionId, payload.frame);
+        } catch (error) {
+          report("assistant stream", error);
+        }
+      },
+      GLOBAL
+    ),
+    "orbis: assistant stream"
+  );
+  ctx.effect(
+    () => ctx.on(
+      "approval/request",
+      (request, next) => {
+        try {
+          const sessionId = sessionIdOf(request?.agent);
+          if (sessionId !== void 0) hub.handleApproval(sessionId, request.toolName, request.callId);
+        } catch (error) {
+          report("approval observation", error);
+        }
+        return next();
+      },
+      GLOBAL
+    ),
+    "orbis: approvals"
+  );
+  ctx.effect(
+    () => ctx.on(
+      "user-questions/request",
+      (request, next) => {
+        let sessionId;
+        try {
+          sessionId = sessionIdOf(request?.agent);
+          if (sessionId !== void 0) {
+            hub.handleQuestion(
+              sessionId,
+              typeof request.toolName === "string" ? request.toolName : void 0,
+              idOf(request.callId)
+            );
+          }
+        } catch (error) {
+          report("question observation", error);
+        }
+        const pending = next();
+        const released = () => {
+          if (sessionId === void 0) return;
+          try {
+            hub.handleQuestionSettled(sessionId);
+          } catch (error) {
+            report("question release", error);
+          }
+        };
+        void Promise.resolve(pending).then(released, released);
+        return pending;
+      },
+      GLOBAL
+    ),
+    "orbis: user questions"
+  );
   const ensureRoutes = () => {
     if (routes !== void 0) return true;
     let webServer;
@@ -1987,9 +2101,12 @@ function apply(ctx) {
       routes = void 0;
     };
   }, "orbis: ticker and routes");
-  ctx.effect(() => () => {
-    hub.dispose();
-  }, "orbis: hub teardown");
+  ctx.effect(
+    () => () => {
+      hub.dispose();
+    },
+    "orbis: hub teardown"
+  );
 }
 function describe() {
   return {

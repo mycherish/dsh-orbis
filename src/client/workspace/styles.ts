@@ -13,8 +13,7 @@ import type * as React from 'react';
 import { ORBIT_PALETTE } from '../contracts';
 
 /** `a(ORBIT_PALETTE.blue, 20)` → blue at 20% alpha, derived, never hard-coded. */
-const a = (color: string, pct: number): string =>
-  `color-mix(in srgb, ${color} ${pct}%, transparent)`;
+const a = (color: string, pct: number): string => `color-mix(in srgb, ${color} ${pct}%, transparent)`;
 
 /** Mix two palette colours (used for gradient midpoints). */
 const mix = (from: string, to: string, pct: number): string =>

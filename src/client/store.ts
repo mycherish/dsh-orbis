@@ -10,11 +10,7 @@
  * an upgrade never resets the user's choices and never throws.
  */
 import { create } from 'zustand';
-import {
-  DEFAULT_SETTINGS,
-  type OrbitConnection,
-  type OrbitSettings,
-} from './contracts';
+import { DEFAULT_SETTINGS, type OrbitConnection, type OrbitSettings } from './contracts';
 import type { OrbitSnapshot } from '../shared/protocol';
 
 /** Exported so the migration test pins the exact legacy key it must read. */
@@ -94,9 +90,7 @@ function pickBoolean(value: unknown, fallback: boolean): boolean {
  */
 export function sanitizeSettings(raw: unknown): OrbitSettings {
   const source: Record<string, unknown> =
-    typeof raw === 'object' && raw !== null && !Array.isArray(raw)
-      ? (raw as Record<string, unknown>)
-      : {};
+    typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const next: Record<string, unknown> = { ...DEFAULT_SETTINGS };
   for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof OrbitSettings)[]) {
     const fallback = DEFAULT_SETTINGS[key];
@@ -306,9 +300,12 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
       set({ snapshot: null });
       return;
     }
-    if (current !== null && current.version === snapshot.version
-      && current.sessionId === snapshot.sessionId
-      && current.updatedAt === snapshot.updatedAt) {
+    if (
+      current !== null &&
+      current.version === snapshot.version &&
+      current.sessionId === snapshot.sessionId &&
+      current.updatedAt === snapshot.updatedAt
+    ) {
       return;
     }
     set({ snapshot });

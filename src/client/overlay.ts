@@ -90,7 +90,10 @@ export function surfacesOf(mode: OverlayMode): OverlaySurfaces {
  * The restore affordance is the *only* thing hidden mode may show, and only
  * when the user hid a still-enabled plugin (otherwise there is no way back).
  */
-export function showsRestoreDot(input: Pick<OverlayInput, 'enabled' | 'visible'>, mode: OverlayMode): boolean {
+export function showsRestoreDot(
+  input: Pick<OverlayInput, 'enabled' | 'visible'>,
+  mode: OverlayMode,
+): boolean {
   return mode === 'hidden' && input.enabled && !input.visible;
 }
 

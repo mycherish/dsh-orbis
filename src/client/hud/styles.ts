@@ -15,12 +15,10 @@ import type * as React from 'react';
 import { ORBIT_PALETTE } from '../contracts';
 
 /** `a(P.blue, 20)` → blue at 20% alpha, derived, never hard-coded. */
-const a = (color: string, pct: number): string =>
-  `color-mix(in srgb, ${color} ${pct}%, transparent)`;
+const a = (color: string, pct: number): string => `color-mix(in srgb, ${color} ${pct}%, transparent)`;
 
 /** Mix two palette colours: `mix(purple, labelDim, 62)` = 62% purple. */
-const mix = (from: string, to: string, pct: number): string =>
-  `color-mix(in srgb, ${from} ${pct}%, ${to})`;
+const mix = (from: string, to: string, pct: number): string => `color-mix(in srgb, ${from} ${pct}%, ${to})`;
 
 const MONO = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
 const SANS =

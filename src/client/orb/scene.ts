@@ -23,7 +23,16 @@ import {
   SphereGeometry,
 } from 'three';
 import type { IUniform } from 'three';
-import { CORE_FRAGMENT, CORE_VERTEX, GLOW_FRAGMENT, GLOW_VERTEX, RING_FRAGMENT, RING_VERTEX, SHELL_FRAGMENT, SHELL_VERTEX } from './shaders';
+import {
+  CORE_FRAGMENT,
+  CORE_VERTEX,
+  GLOW_FRAGMENT,
+  GLOW_VERTEX,
+  RING_FRAGMENT,
+  RING_VERTEX,
+  SHELL_FRAGMENT,
+  SHELL_VERTEX,
+} from './shaders';
 
 export type CoreUniforms = {
   uTime: IUniform<number>;

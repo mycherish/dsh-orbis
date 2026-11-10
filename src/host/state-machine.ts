@@ -27,14 +27,7 @@ import type { OrbitSilenceLevel } from '../shared/task-context-types';
 
 /** How a Turn ended, as reported by `turn/end.reason.kind`. */
 export type TurnEndKind =
-  | 'completed'
-  | 'interrupted'
-  | 'aborted'
-  | 'blocked'
-  | 'error'
-  | 'max-tokens'
-  | 'forked'
-  | 'other';
+  'completed' | 'interrupted' | 'aborted' | 'blocked' | 'error' | 'max-tokens' | 'forked' | 'other';
 
 /** The transient stream phase inside the current step. */
 export type StreamPhase = 'none' | 'thinking' | 'preparing' | 'responding';

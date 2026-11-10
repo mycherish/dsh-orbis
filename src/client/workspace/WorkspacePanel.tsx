@@ -15,7 +15,17 @@ import { NodeLegend } from './Legend';
 import { SettingsPopover } from './SettingsPopover';
 import { Timeline } from './Timeline';
 import { CloseIcon, OrbitMark, SlidersIcon } from './Icons';
-import { EMPTY_TIMELINE, buildTimeline, connectionColor, formatCount, formatDuration, formatFps, isDegraded, stateColor, visibleRows } from './format';
+import {
+  EMPTY_TIMELINE,
+  buildTimeline,
+  connectionColor,
+  formatCount,
+  formatDuration,
+  formatFps,
+  isDegraded,
+  stateColor,
+  visibleRows,
+} from './format';
 import { buildStyles, cssVars } from './styles';
 import { LABELS } from './labels';
 
@@ -64,7 +74,9 @@ export function WorkspacePanel(props: WorkspaceViewProps): React.ReactElement {
   const connColor = connectionColor(connection);
   const loading = snapshot === null;
   const rows = visibleRows(snapshot ? snapshot.events : NO_EVENTS, MAX_ACTIVITY_ROWS);
-  const timeline = snapshot ? buildTimeline(snapshot.events, snapshot.metrics.startedAt, snapshot.updatedAt) : EMPTY_TIMELINE;
+  const timeline = snapshot
+    ? buildTimeline(snapshot.events, snapshot.metrics.startedAt, snapshot.updatedAt)
+    : EMPTY_TIMELINE;
 
   const startedAt = snapshot ? snapshot.metrics.startedAt : 0;
   const uptime =
@@ -189,10 +201,26 @@ export function WorkspacePanel(props: WorkspaceViewProps): React.ReactElement {
             <Timeline model={timeline} stateColor={color} />
           </div>
           <div className="no-stats">
-            <Stat value={loading ? empty : formatCount(snapshot.metrics.turns)} label={LABELS.stats.turns} hint={LABELS.statsHint.turns} />
-            <Stat value={loading ? empty : formatCount(snapshot.metrics.tools)} label={LABELS.stats.tools} hint={LABELS.statsHint.tools} />
-            <Stat value={loading ? empty : formatCount(snapshot.metrics.files)} label={LABELS.stats.files} hint={LABELS.statsHint.files} />
-            <Stat value={loading ? empty : formatCount(snapshot.activeTools)} label={LABELS.stats.active} hint={LABELS.statsHint.active} />
+            <Stat
+              value={loading ? empty : formatCount(snapshot.metrics.turns)}
+              label={LABELS.stats.turns}
+              hint={LABELS.statsHint.turns}
+            />
+            <Stat
+              value={loading ? empty : formatCount(snapshot.metrics.tools)}
+              label={LABELS.stats.tools}
+              hint={LABELS.statsHint.tools}
+            />
+            <Stat
+              value={loading ? empty : formatCount(snapshot.metrics.files)}
+              label={LABELS.stats.files}
+              hint={LABELS.statsHint.files}
+            />
+            <Stat
+              value={loading ? empty : formatCount(snapshot.activeTools)}
+              label={LABELS.stats.active}
+              hint={LABELS.statsHint.active}
+            />
             <Stat value={formatFps(fps)} label={LABELS.stats.fps} hint={LABELS.statsHint.fps} />
             <Stat
               value={loading ? empty : LABELS.stateEn[agentState]}

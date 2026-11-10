@@ -7,12 +7,7 @@
  * styled status dot instead of a blank square.
  */
 import * as React from 'react';
-import {
-  LAUNCHER_SIZE,
-  ORBIT_PALETTE,
-  STATE_COLOR,
-  type OrbitConnection,
-} from './contracts';
+import { LAUNCHER_SIZE, ORBIT_PALETTE, STATE_COLOR, type OrbitConnection } from './contracts';
 import type { LauncherPosition } from './store';
 import type { OrbitAgentState } from '../shared/protocol';
 
@@ -127,10 +122,12 @@ export function Launcher(props: LauncherProps): React.ReactElement {
     if (!drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
     drag.moved = true;
     setDragging(true);
-    props.onPositionChange(clampPosition({
-      right: drag.originRight - dx,
-      bottom: drag.originBottom - dy,
-    }));
+    props.onPositionChange(
+      clampPosition({
+        right: drag.originRight - dx,
+        bottom: drag.originBottom - dy,
+      }),
+    );
   };
 
   const endDrag = (event: React.PointerEvent<HTMLDivElement>): void => {
@@ -179,11 +176,19 @@ export function Launcher(props: LauncherProps): React.ReactElement {
       }}
     >
       <style>{CSS}</style>
-      <span className="no-launcher-fallback" aria-hidden="true" data-active={props.orbUnavailable === true ? 'true' : 'false'}><i /></span>
+      <span
+        className="no-launcher-fallback"
+        aria-hidden="true"
+        data-active={props.orbUnavailable === true ? 'true' : 'false'}
+      >
+        <i />
+      </span>
       <div ref={slotRef} className="no-launcher-slot" aria-hidden="true" />
       <span className="no-launcher-ring" aria-hidden="true" />
       {activeTools > 0 ? (
-        <span className="no-launcher-badge" aria-hidden="true">{activeTools > 9 ? '9+' : activeTools}</span>
+        <span className="no-launcher-badge" aria-hidden="true">
+          {activeTools > 9 ? '9+' : activeTools}
+        </span>
       ) : null}
       <span className="no-launcher-tip" role="tooltip">
         <b>{translate(`state.${agentState}`)}</b>
@@ -220,7 +225,13 @@ export function LauncherRestore(props: {
       className="no-launcher-restore"
       aria-label={props.translate('launcher.show')}
       title={props.translate('launcher.show')}
-      style={{ right: `${props.position.right + 24}px`, bottom: `${props.position.bottom + 24}px`, '--no-accent': accent } as React.CSSProperties}
+      style={
+        {
+          right: `${props.position.right + 24}px`,
+          bottom: `${props.position.bottom + 24}px`,
+          '--no-accent': accent,
+        } as React.CSSProperties
+      }
       onClick={props.onRestore}
     >
       <style>{CSS}</style>

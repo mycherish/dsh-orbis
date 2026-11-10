@@ -17,7 +17,6 @@ function pageRequest(path: string, headers: Record<string, string> = {}): Reques
   return new Request(`http://x${path}`, { headers: { host: PAGE_AUTHORITY, ...headers } });
 }
 
-
 interface FakeRoute {
   kind: string;
   path: string;
@@ -151,11 +150,14 @@ describe('host plugin wiring', () => {
       ) => Promise<unknown>;
 
       onStatus({ agent: { id: 's1' }, status: 'running' });
-      onEvent({ id: 's1' }, {
-        type: 'tool/call',
-        time: T0,
-        data: { turn: 1, step: 1, callId: 'c1', name: 'edit', arguments: '{"file_path":"/Users/x/y.ts"}' },
-      });
+      onEvent(
+        { id: 's1' },
+        {
+          type: 'tool/call',
+          time: T0,
+          data: { turn: 1, step: 1, callId: 'c1', name: 'edit', arguments: '{"file_path":"/Users/x/y.ts"}' },
+        },
+      );
 
       const stateRoute = host.routes.find((route) => route.path === '/api/orbis/state');
       expect(stateRoute).toBeDefined();
@@ -173,11 +175,14 @@ describe('host plugin wiring', () => {
       // The Host never forwards the directory or the user name.
       expect(JSON.stringify(body)).not.toContain('/Users');
 
-      onEvent({ id: 's1' }, {
-        type: 'tool/result',
-        time: T0 + 40,
-        data: { turn: 1, step: 1, message: { toolCallId: 'c1' } },
-      });
+      onEvent(
+        { id: 's1' },
+        {
+          type: 'tool/result',
+          time: T0 + 40,
+          data: { turn: 1, step: 1, message: { toolCallId: 'c1' } },
+        },
+      );
       body = await read();
       expect(body.activeTools).toBe(0);
       expect(body.agentState).toBe('thinking');
@@ -207,15 +212,18 @@ describe('host plugin wiring', () => {
       apply(host.ctx as never);
       const onEvent = host.listeners.get('session/event') as (session: unknown, event: unknown) => void;
       // Only a mid-Session event survives a reload: `session/title` already fired.
-      onEvent({ id: 's1' }, {
-        type: 'tool/call',
-        time: T0,
-        data: { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"ls"}' },
-      });
+      onEvent(
+        { id: 's1' },
+        {
+          type: 'tool/call',
+          time: T0,
+          data: { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"ls"}' },
+        },
+      );
       const stateRoute = host.routes.find((route) => route.path === '/api/orbis/state');
-      const body = (await (await stateRoute?.resource(
-        pageRequest('/api/orbis/state?sessionId=s1'),
-      ))?.json()) as Record<string, unknown>;
+      const body = (await (
+        await stateRoute?.resource(pageRequest('/api/orbis/state?sessionId=s1'))
+      )?.json()) as Record<string, unknown>;
       expect((body.task as Record<string, unknown>).taskTitle).toBe('修复重复悬浮球');
     } finally {
       host.restoreConsole();
@@ -227,20 +235,26 @@ describe('host plugin wiring', () => {
     try {
       apply(host.ctx as never);
       const onEvent = host.listeners.get('session/event') as (session: unknown, event: unknown) => void;
-      onEvent({ id: 's1' }, {
-        type: 'tool/call',
-        time: T0,
-        data: { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"ls"}' },
-      });
-      onEvent({ id: 's1' }, {
-        type: 'session/title',
-        time: T0 + 1,
-        data: { title: '新标题', messageSeqs: [1], source: { kind: 'user' } },
-      });
+      onEvent(
+        { id: 's1' },
+        {
+          type: 'tool/call',
+          time: T0,
+          data: { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"ls"}' },
+        },
+      );
+      onEvent(
+        { id: 's1' },
+        {
+          type: 'session/title',
+          time: T0 + 1,
+          data: { title: '新标题', messageSeqs: [1], source: { kind: 'user' } },
+        },
+      );
       const stateRoute = host.routes.find((route) => route.path === '/api/orbis/state');
-      const body = (await (await stateRoute?.resource(
-        pageRequest('/api/orbis/state?sessionId=s1'),
-      ))?.json()) as Record<string, unknown>;
+      const body = (await (
+        await stateRoute?.resource(pageRequest('/api/orbis/state?sessionId=s1'))
+      )?.json()) as Record<string, unknown>;
       expect((body.task as Record<string, unknown>).taskTitle).toBe('新标题');
     } finally {
       host.restoreConsole();
@@ -252,11 +266,16 @@ describe('host plugin wiring', () => {
     try {
       apply(host.ctx as never);
       const onEvent = host.listeners.get('session/event') as (session: unknown, event: unknown) => void;
-      expect(() => onEvent({ id: 's1' }, {
-        type: 'tool/call',
-        time: T0,
-        data: { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"ls"}' },
-      })).not.toThrow();
+      expect(() =>
+        onEvent(
+          { id: 's1' },
+          {
+            type: 'tool/call',
+            time: T0,
+            data: { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"ls"}' },
+          },
+        ),
+      ).not.toThrow();
     } finally {
       host.restoreConsole();
     }
@@ -280,14 +299,20 @@ describe('host plugin wiring', () => {
       const stateRoute = host.routes.find((route) => route.path === '/api/orbis/state');
       expect(stateRoute).toBeDefined();
       const read = async (): Promise<Record<string, unknown>> =>
-        (await (await stateRoute!.resource(pageRequest('/api/orbis/state?sessionId=s1'))).json()) as Record<string, unknown>;
+        (await (await stateRoute!.resource(pageRequest('/api/orbis/state?sessionId=s1'))).json()) as Record<
+          string,
+          unknown
+        >;
 
       onStatus({ agent: { id: 's1' }, status: 'running' });
-      onEvent({ id: 's1' }, {
-        type: 'tool/call',
-        time: T0,
-        data: { turn: 1, step: 1, callId: 'c1', name: 'ask_user_question', arguments: '{}' },
-      });
+      onEvent(
+        { id: 's1' },
+        {
+          type: 'tool/call',
+          time: T0,
+          data: { turn: 1, step: 1, callId: 'c1', name: 'ask_user_question', arguments: '{}' },
+        },
+      );
 
       let delegated = false;
       const pending = onQuestion(
